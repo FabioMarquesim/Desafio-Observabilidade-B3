@@ -1,166 +1,195 @@
-# 🏆 Desafio Técnico - Observabilidade B3
+# Mainstage Live Sync API
 
-Um desafio prático desenvolvido para avaliar os fundamentos de Observabilidade e Engenharia de Confiabilidade aplicados a um serviço de backend simulado. 
+Solução do Desafio Técnico de Observabilidade B3 — Cenário 1 ("Mainstage Live Sync"). API em FastAPI instrumentada com OpenTelemetry (traces, métricas e logs), com stack completa de observabilidade via `grafana/otel-lgtm` e teste de carga via `grafana/k6`, tudo orquestrado em um único `docker-compose.yaml`.
 
-> *"Um sistema às cegas é um incidente esperando para acontecer. Sua missão é trazer a luz."*
+## Sumário
 
----
+- [Visão geral da arquitetura](#visão-geral-da-arquitetura)
+- [Como rodar](#como-rodar)
+- [Endpoints da API](#endpoints-da-api)
+- [Observabilidade](#observabilidade)
+- [Dashboard do Grafana](#dashboard-do-grafana)
+- [Resiliência](#resiliência)
+- [Teste de carga (k6)](#teste-de-carga-k6)
+- [Estrutura do projeto](#estrutura-do-projeto)
 
-## 🎯 Objetivo do Desafio
-Construir um serviço HTTP com um endpoint integrado a uma API pública (ou utilizando dados simulados). O foco principal do desafio é **instrumentar essa aplicação** para gerar telemetria útil (Logs, Métricas e Traces) de forma automatizada em um ambiente local.
+## Visão geral da arquitetura
 
----
+```mermaid
+flowchart LR
+    k6["k6<br/>(load test)"] -->|HTTP| api["live-sync-api<br/>(FastAPI)"]
+    api -->|HTTP| mock["mock-music-api<br/>(API externa simulada)"]
+    api -->|"OTLP push<br/>(traces, logs, métricas)"| collector
 
-## 🔍 O Que Será Avaliado
-A sua entrega será avaliada com base nos seguintes pesos:
-* **Instrumentação (Métricas/Logs/Traces):** 40%.
-* **Criação de Dashboards:** 25%.
-* **Funcionamento da API e Resiliência:** 20%.
-* **Documentação e Infraestrutura como Código (Docker):** 15%.
+    subgraph stack["otel-lgtm"]
+        collector["OTel Collector"] --> prometheus["Prometheus"]
+        collector --> loki["Loki"]
+        collector --> tempo["Tempo"]
+        prometheus --> grafana["Grafana"]
+        loki --> grafana
+        tempo --> grafana
+    end
 
----
+    you(("você")) -->|localhost:3000| grafana
+```
 
-## ⏱️ Prazo de Entrega
-O candidato terá **5 dias corridos** a partir do recebimento deste desafio para enviar a solução.
+- **`live-sync-api`**: aplicação do desafio, instrumentada com OpenTelemetry.
+- **`mock-music-api`**: simula a API externa de streaming — latência variável e falha aleatória (~5%), pra exercitar a resiliência da API principal.
+- **`otel-lgtm`**: imagem oficial da Grafana com OTel Collector, Prometheus, Loki, Tempo e Grafana em um único container.
+- **`k6`**: gera tráfego de carga pra popular os dashboards.
 
----
+## Como rodar
 
-## 🏗️ Requisitos de Infraestrutura e Stack
-Para padronizar a avaliação, a sua entrega deve rodar localmente com um único comando de orquestração. 
+Pré-requisitos: Docker e Docker Compose.
 
-| Componente | Requisito Esperado |
+```bash
+docker compose up -d --build
+```
+
+Isso sobe `live-sync-api`, `mock-music-api` e `otel-lgtm`, além de disparar uma execução do `k6` (5 minutos de carga) contra a API.
+
+| Serviço | URL |
 | :--- | :--- |
-| **Linguagem/Framework** | Python utilizando Flask ou FastAPI. |
-| **Ambiente de Execução** | Docker Compose ou Docker Swarm. |
-| **Stack de Observabilidade** | OpenTelemetry para instrumentação. Utilizar a imagem oficial `grafana/otel-lgtm` que provisiona uma stack completa com OTEL Collector, Prometheus, Loki, Tempo e Grafana. É necessário utilizar também a imagem do `grafana/k6`, que será responsável por gerar o teste de carga na aplicação. |
+| API (Mainstage Live Sync) | http://localhost:8000 |
+| Mock Music API | http://localhost:9000 |
+| Grafana | http://localhost:3000 (login padrão: `admin` / `admin`) |
+| Métricas via Collector (pull) | http://localhost:8889/metrics |
 
----
+Para derrubar tudo:
 
-## 🧭 Cenários Disponíveis (Escolha APENAS 1)
+```bash
+docker compose down
+```
 
-### 🎧 Cenário 1 — Mainstage Live Sync (Música & Festivais)
-**📖 A História:**
-Em festivais de grande porte, a experiência audiovisual é tudo. A equipe de engenharia de transmissão precisa de uma API ultra-rápida que atue como ponte entre os palcos principais e a internet. O sistema deve capturar instantaneamente os metadados das faixas que estão sendo tocadas nos CDJs e softwares de mixagem dos artistas, processar a "energia" da música e enviar essas informações para sincronizar os painéis de LED, a pirotecnia e atualizar os aplicativos do público em tempo real.
+## Endpoints da API
 
-O desafio é que a rede em festivais oscila muito e a integração com bases de dados musicais pode apresentar latência. Se a API falhar ou ficar lenta, os visuais do palco perdem o sincronismo com as batidas, arruinando a experiência do show.
+### `GET /live-sync/track?artist={artist}&title={title}`
 
-**🎯 Missão Técnica:**
-Construir um endpoint que receba a faixa atual, consulte dados enriquecidos simulando uma API externa de streaming e devolva as instruções de palco.
+Endpoint principal do desafio. Consulta a `mock-music-api` (API externa simulada) e devolve os metadados da faixa, incluindo o tempo de sincronização.
 
-`GET /live-sync/track?artist={artist}&title={title}`  
+```bash
+curl "http://localhost:8000/live-sync/track?artist=Foo%20Fighters&title=Everlong"
+```
 
-**Resposta Esperada:**
 ```json
-{  
-  "track": "Everlong",  
-  "artist": "Foo Fighters",  
-  "bpm": 158,  
-  "energy_level": "High",  
-  "visual_preset": "strobes_and_lasers",  
-  "sync_delay_ms": 12  
+{
+  "track": "Everlong",
+  "artist": "Foo Fighters",
+  "bpm": 158,
+  "energy_level": "High",
+  "visual_preset": "strobes_and_lasers",
+  "sync_delay_ms": 12
 }
 ```
 
-##
+### `GET /health`
 
-### 🍿 Cenário 2 — Blockbuster Premiere Rush (Filmes & Streaming)  
-**📖 A História:**
-Uma grande plataforma de streaming está prestes a lançar a continuação de um épico de ficção científica simultaneamente para o mundo todo. Exatamente às 20h00, milhões de usuários famintos por entretenimento apertarão o botão de play no exato mesmo segundo.   O serviço responsável por verificar as credenciais do usuário, analisar a qualidade da banda de internet do cliente e autorizar a resolução da transmissão (4K, 1080p, 720p) precisa aguentar o "Premiere Rush", ou seja, o pico absurdo de acessos. Se o serviço principal de validação ficar sobrecarregado, ele precisa degradar graciosamente para não derrubar a plataforma inteira, entregando resoluções menores em vez de telas de erro.   
+Health check simples.
 
-**🎯 Missão Técnica:**  
-Construir o serviço de autorização de streaming que decide a qualidade que o usuário vai receber baseado em fatores simulados, como a carga do servidor ou conexão do cliente.   
+```bash
+curl "http://localhost:8000/health"
+```
 
-`GET /stream/authorize?user_id={user_id}&movie_id={movie_id}`  
-
-**Resposta Esperada:**
 ```json
-{  
-  "user_id": "usr_99823",  
-  "movie_id": "mov_dune_part2",  
-  "authorized": true,  
-  "resolution": "4K",  
-  "drm_token": "eyJhbGciOiJIUzI1NiIsInR5c...",  
-  "server_region": "sa-east-1"  
-}
-```  
+{"status": "ok"}
+```
 
----
+### `GET /metrics`
 
-## 📊 Sistema de Pontuação e Entregáveis (Total: 100 pts)  
-### 📈 1. Observabilidade e Instrumentação (40 pontos)  
-* Expor métricas padrão RED (Rate, Errors, Duration) no formato Prometheus (15 pts).   
-* Estruturar logs em formato JSON (10 pts).   
-* Injetar o trace_id nos logs para garantir a rastreabilidade ponta a ponta (15 pts).   
+Expõe as métricas da aplicação em formato Prometheus.
 
-### 🖥️ 2. Dashboards e Visualização (25 pontos)  
-* Fornecer um arquivo JSON exportado do Grafana contendo um dashboard previamente configurado (15 pts).  
-* O dashboard deve conter no mínimo 3 painéis: RPS (Requisições por segundo), Taxa de Erros e Latência, utilizando p95 ou média (10 pts).  
+```bash
+curl "http://localhost:8000/metrics"
+```
 
-### ⚙️ 3. Funcionamento da API e Resiliência (20 pontos)  
-* O endpoint desenvolvido deve retornar as respostas esperadas no formato JSON (10 pts).  
-* A aplicação não deve sofrer "crash" caso a API externa simulada falhe; ela deve tratar o erro e retornar um HTTP 500 ou 503 (10 pts).  
+```
+# HELP http_server_request_duration_seconds Duration of HTTP server requests.
+# TYPE http_server_request_duration_seconds histogram
+http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="200",http_route="/live-sync/track",...,le="+Inf"} 42
+http_server_request_duration_seconds_sum{http_request_method="GET",http_response_status_code="200",http_route="/live-sync/track",...} 3.192
+http_server_request_duration_seconds_count{http_request_method="GET",http_response_status_code="200",http_route="/live-sync/track",...} 42
+# HELP http_server_active_requests ...
+http_server_active_requests{...} 0
+```
 
-### 📦 4. Documentação e Infraestrutura (15 pontos)  
-* Escrever um Dockerfile otimizado e um arquivo de orquestração (Compose/Swarm) que execute a API e a stack de observabilidade de forma conjunta (10 pts).  
-* Criar um README com instruções claras explicando como rodar o projeto e como acessar o dashboard criado (5 pts).  
+(saída real é bem mais longa — resumida aqui só pra mostrar o formato; os labels completos incluem `job`, `instance`, `otel_scope_name`, etc.)
 
----
+## Observabilidade
 
-## 🛠️ Material de Apoio e Configuração  
-Para ajudar na construção do setup, utilize as referências oficiais abaixo:  
-* **Grafana LGTM Stack:** Documentação Oficial  [https://grafana.com/docs/opentelemetry/docker-lgtm/]
-* **Instrumentação Python:** OpenTelemetry Docs  [https://opentelemetry.io/docs/]
-* **Testes de Carga:** Grafana k6 Docs  [https://hub.docker.com/r/grafana/k6]
+### Traces
 
-### Configuração do Gerador de Carga (k6)  
-Para garantir que sua aplicação receba tráfego e popule os dashboards, crie o arquivo `load.js` na raiz do seu projeto:  
-```JavaScript
-import http from 'k6/http';
-import { sleep } from 'k6';
+Grafana → **Explore** → datasource **Tempo**. Dá pra buscar por `service.name = live-sync-api`, ou ir direto de um log/métrica até o trace correspondente (ver correlação abaixo). Cada trace mostra a requisição completa, incluindo a chamada HTTP para a `mock-music-api`.
 
-export const options = {
-  vus: 50, // 50 usuários virtuais simultâneos simulados
-  duration: '5m', // Duração total do teste
-};
+### Logs
 
-export default function () {
-  // ATENÇÃO: Ajuste a URL abaixo para refletir o cenário que você escolheu
-  http.get('http://api:8080/stream/authorize?user_id=123&movie_id=dune2');
-  sleep(0.1); // Pausa de 100ms entre as requisições de cada usuário
-}
-```  
+Grafana → **Explore** → datasource **Loki** → modo **Code** → query:
 
-No seu arquivo de orquestração `docker-compose.yml`, adicione o bloco abaixo como referência para acionar o teste junto com a sua API:  
-```YAML  
-  k6-load-test:
-    image: grafana/k6:latest
-    volumes:
-      - ./load.js:/load.js
-    command: run /load.js
-    depends_on:
-      - api # Garante que a API inicie antes de receber o tráfego
-```  
+```
+{service_name="live-sync-api"}
+```
 
----
+Os logs são estruturados em JSON e incluem `trace_id`/`span_id` de cada requisição. Expandindo um log (**Details**), a seção **Links** mostra o `trace_id` como link clicável — clicar nele abre o trace completo no Tempo, fechando a correlação log → trace.
 
-## 🚀 Processo de Submissão  
-### Antes de enviar, valide sua entrega com este checklist:  
-* [ ] Repositório público com código-fonte.  
-* [ ] Arquivo de orquestração de containers funcional (subindo API, Prometheus, Grafana, Loki, Tempo e Otel Collector).  
-* [ ] Aplicação instrumentada expondo rota /metrics.  
-* [ ] Arquivo JSON do Dashboard do Grafana na raiz do projeto.  
-* [ ] Documentação (README.md da solução) com instruções claras de execução.
+### Métricas
 
-### Como enviar:
-* Faça um fork deste repositório (não clone diretamente!).  
-* Desenvolva o seu projeto dentro deste fork.  
-* Faça o commit e suba as alterações para o SEU fork.  
-* Pela interface do GitHub, abra um Pull Request para este repositório original.  
+Métricas RED (Rate, Errors, Duration) são geradas automaticamente pela instrumentação do FastAPI. Principais séries: `http_server_request_duration_seconds` (histograma) e `http_server_active_requests` (gauge).
 
-### ⚠️ ATENÇÃO:  
-* Mantenha o seu fork público para facilitar a inspeção do código pela equipe e não tente fazer PUSH diretamente para este repositório base.  
+Consulta no Prometheus (embutido no Grafana, datasource **Prometheus**):
 
----
+```promql
+histogram_quantile(0.95, rate(http_server_request_duration_seconds[5m]))
+```
 
-### 🎙️ O Que Esperar da Avaliação?  
-A etapa final do processo seletivo incluirá um bate-papo técnico sobre a sua entrega. Esteja preparado para compartilhar sua tela rodando o projeto, navegar pelos dashboards que você construiu e realizar troubleshooting ao vivo caso simulemos uma falha nos seus containers. Entender como a sua telemetria se comporta sob pressão é tão importante quanto o código da API!
+## Dashboard do Grafana
+
+O arquivo [`dashboard.json`](dashboard.json) na raiz do projeto contém o dashboard usado na entrega, com 9 painéis: um texto de abertura contextualizando a API, 4 cards de resumo rápido (request rate, taxa de erro, latência p95, requisições ativas) e os gráficos de série temporal (RPS por status code, taxa de erro, latência p50/p95/p99) + heatmap de distribuição da latência — cada um com descrição explicando a query por trás.
+
+Para importá-lo: **Dashboards → New → Import → Upload JSON file**, selecionando o datasource Prometheus quando solicitado.
+
+## Resiliência
+
+- A chamada da API para a `mock-music-api` tem **timeout de 2s**; se estourar ou a API externa responder com erro, a aplicação captura a exceção e devolve **HTTP 503** (em vez de quebrar).
+- A `mock-music-api` simula instabilidade de rede real: falha aleatoriamente ~5% das requisições e tem latência proporcional à carga simultânea (jitter de rede + atraso por carga).
+
+### Testando a resiliência na prática
+
+Como a falha da `mock-music-api` é probabilística (~5%), rodar algumas requisições em sequência eventualmente aciona o caminho de erro:
+
+```bash
+for i in $(seq 1 30); do
+  curl -s -o /dev/null -w "%{http_code}\n" "http://localhost:8000/live-sync/track?artist=Test&title=Resilience$i"
+done
+```
+
+Entre os `200`, deve aparecer algum `503`. Quando isso acontece:
+- O log da `live-sync-api` registra `external streaming API failed ... error=...` em nível `ERROR`, com `trace_id` correlacionado.
+- O trace no Tempo mostra o span da chamada HTTP pra `mock-music-api` marcado como erro.
+- O painel **Errors** do dashboard reflete o aumento na taxa de erro na mesma janela de tempo.
+
+Pra forçar erro de forma determinística (100% das chamadas), derrube a API externa: `docker compose stop mock-music-api`. A `live-sync-api` continua respondendo (com 503) até você subir a dependência de novo.
+
+## Teste de carga (k6)
+
+O serviço `k6` já roda automaticamente com `docker compose up -d` (uma execução de 5 minutos, 50 usuários virtuais, contra `/live-sync/track`). Para rodar um teste adicional sob demanda, sem precisar derrubar a stack:
+
+```bash
+docker compose run --rm k6 run /load.js
+```
+
+## Estrutura do projeto
+
+```
+.
+├── docker-compose.yaml          # orquestração de todos os serviços
+├── Dockerfile.live-sync-api     # build da API principal
+├── Dockerfile.mock-music-api    # build da API externa simulada
+├── live_sync_api/
+│   ├── main.py                  # rotas da API (/live-sync/track, /health, /metrics)
+│   └── telemetry.py             # setup do SDK OpenTelemetry (traces, logs, métricas)
+├── mock_music_api/
+│   └── main.py                  # API externa simulada (latência + falhas aleatórias)
+├── otel-collector-config.yaml   # pipelines do OTel Collector (mount no otel-lgtm)
+├── prometheus.yaml              # config do Prometheus embutido (native histograms, scrape)
+├── load.js                      # script de carga do k6
+└── dashboard.json               # dashboard do Grafana exportado
+```
