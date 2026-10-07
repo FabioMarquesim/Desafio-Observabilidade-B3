@@ -1,0 +1,50 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.live-sync-api
+    container_name: live-sync-api
+    ports:
+      - "8000:8080"
+    volumes:
+      - ./live_sync_api:/app/live_sync_api
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-lgtm:4318
+      - MUSIC_API_URL=http://mock-music-api:9000
+      - OTEL_SEMCONV_STABILITY_OPT_IN=http
+    depends_on:
+      - otel-lgtm
+      - mock-music-api
+
+  mock-music-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock-music-api
+    container_name: mock-music-api
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./mock_music_api:/app/mock_music_api
+
+  otel-lgtm:
+    image: grafana/otel-lgtm:latest
+    container_name: otel-lgtm
+    ports:
+      - "3000:3000"   # Grafana UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # /metrics exposto pelo Collector (prometheus exporter)
+    environment:
+      - PROMETHEUS_EXTRA_ARGS=--enable-feature=native-histograms
+    volumes:
+      - ./otel-collector-config.yaml:/otel-lgtm/otelcol-config.yaml
+      - ./prometheus.yaml:/otel-lgtm/prometheus.yaml
+
+  k6:
+    image: grafana/k6:latest
+    container_name: k6-load-test
+    volumes:
+      - ./load.js:/load.js
+    command: run /load.js
+    depends_on:
+      - api
