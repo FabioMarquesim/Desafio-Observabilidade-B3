@@ -1,166 +1,362 @@
-# 🏆 Desafio Técnico - Observabilidade B3
+# Desafio Observabilidade B3 - Stream Authorization API
 
-Um desafio prático desenvolvido para avaliar os fundamentos de Observabilidade e Engenharia de Confiabilidade aplicados a um serviço de backend simulado. 
+## 1. Titulo do projeto
+Desafio Observabilidade B3 - API de autorizacao de streaming (fase inicial).
 
-> *"Um sistema às cegas é um incidente esperando para acontecer. Sua missão é trazer a luz."*
+## 2. Objetivo
+Implementar uma API HTTP minima em Python/FastAPI para o cenario de autorizacao de streaming.
+Nesta fase, o foco e validar contrato de endpoint, entrada/saida e fluxo basico de execucao local.
 
----
+## 3. Cenario escolhido
+Cenario 2: Blockbuster Premiere Rush (Filmes e Streaming).
 
-## 🎯 Objetivo do Desafio
-Construir um serviço HTTP com um endpoint integrado a uma API pública (ou utilizando dados simulados). O foco principal do desafio é **instrumentar essa aplicação** para gerar telemetria útil (Logs, Métricas e Traces) de forma automatizada em um ambiente local.
+Endpoint principal do cenario:
 
----
+- GET /stream/authorize?user_id={user_id}&movie_id={movie_id}
 
-## 🔍 O Que Será Avaliado
-A sua entrega será avaliada com base nos seguintes pesos:
-* **Instrumentação (Métricas/Logs/Traces):** 40%.
-* **Criação de Dashboards:** 25%.
-* **Funcionamento da API e Resiliência:** 20%.
-* **Documentação e Infraestrutura como Código (Docker):** 15%.
+## 4. Estado atual do projeto
+Implementado nesta branch:
 
----
+- API minima com FastAPI
+- Endpoint GET /health
+- Endpoint GET /stream/authorize
+- Validacao de query params (obrigatorios, sem string vazia, maximo 100 caracteres)
+- Modelo de resposta com Pydantic
+- OpenAPI/Swagger disponivel em /docs
+- Script de smoke test em scripts/smoke-test.sh
 
-## ⏱️ Prazo de Entrega
-O candidato terá **5 dias corridos** a partir do recebimento deste desafio para enviar a solução.
+Ainda nao implementado:
 
----
+- Integracao externa simulada
+- Resiliencia avancada (retry, circuit breaker etc.)
+- Docker e Docker Compose
+- OpenTelemetry
+- Metricas Prometheus (/metrics)
+- Logs estruturados JSON
+- Loki, Tempo, Grafana, dashboard exportado
+- k6
 
-## 🏗️ Requisitos de Infraestrutura e Stack
-Para padronizar a avaliação, a sua entrega deve rodar localmente com um único comando de orquestração. 
+## 5. Tecnologias atuais
+- Python 3
+- FastAPI
+- Uvicorn
+- Pydantic
 
-| Componente | Requisito Esperado |
-| :--- | :--- |
-| **Linguagem/Framework** | Python utilizando Flask ou FastAPI. |
-| **Ambiente de Execução** | Docker Compose ou Docker Swarm. |
-| **Stack de Observabilidade** | OpenTelemetry para instrumentação. Utilizar a imagem oficial `grafana/otel-lgtm` que provisiona uma stack completa com OTEL Collector, Prometheus, Loki, Tempo e Grafana. É necessário utilizar também a imagem do `grafana/k6`, que será responsável por gerar o teste de carga na aplicação. |
+## 6. Estrutura de diretorios atual
+```text
+.
+├── app
+│   ├── __init__.py
+│   ├── main.py
+│   ├── models
+│   │   ├── __init__.py
+│   │   └── streaming.py
+│   └── routes
+│       ├── __init__.py
+│       └── streaming.py
+├── scripts
+│   └── smoke-test.sh
+├── requirements.txt
+└── README.md
+```
 
----
+## 7. Pre-requisitos
+- Linux (ou ambiente shell compativel com bash/sh)
+- Python 3 com modulo venv habilitado
+- curl
 
-## 🧭 Cenários Disponíveis (Escolha APENAS 1)
+## 8. Como criar e ativar o ambiente virtual
+No diretorio raiz do projeto:
 
-### 🎧 Cenário 1 — Mainstage Live Sync (Música & Festivais)
-**📖 A História:**
-Em festivais de grande porte, a experiência audiovisual é tudo. A equipe de engenharia de transmissão precisa de uma API ultra-rápida que atue como ponte entre os palcos principais e a internet. O sistema deve capturar instantaneamente os metadados das faixas que estão sendo tocadas nos CDJs e softwares de mixagem dos artistas, processar a "energia" da música e enviar essas informações para sincronizar os painéis de LED, a pirotecnia e atualizar os aplicativos do público em tempo real.
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
 
-O desafio é que a rede em festivais oscila muito e a integração com bases de dados musicais pode apresentar latência. Se a API falhar ou ficar lenta, os visuais do palco perdem o sincronismo com as batidas, arruinando a experiência do show.
+## 9. Como instalar dependencias
+Com o ambiente virtual ativo:
 
-**🎯 Missão Técnica:**
-Construir um endpoint que receba a faixa atual, consulte dados enriquecidos simulando uma API externa de streaming e devolva as instruções de palco.
+```bash
+pip install -r requirements.txt
+```
 
-`GET /live-sync/track?artist={artist}&title={title}`  
+## 10. Como executar a API com Uvicorn
+No diretorio raiz do projeto:
 
-**Resposta Esperada:**
+```bash
+uvicorn app.main:app --reload
+```
+
+Servidor local padrao:
+
+- http://127.0.0.1:8000
+
+## 11. Endpoints disponiveis
+- GET /health
+- GET /stream/authorize
+
+### Regras de validacao de /stream/authorize
+- user_id: obrigatorio, nao vazio, maximo 100 caracteres
+- movie_id: obrigatorio, nao vazio, maximo 100 caracteres
+
+## 12. Exemplos individuais usando curl
+### Health check
+```bash
+curl -i http://127.0.0.1:8000/health
+```
+
+### Autorizacao valida
+```bash
+curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
+```
+
+### Parametro ausente (deve retornar 422)
+```bash
+curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823"
+```
+
+### String vazia (deve retornar 422)
+```bash
+curl -i "http://127.0.0.1:8000/stream/authorize?user_id=&movie_id=mov_dune_part2"
+```
+
+## 13. Como acessar a documentacao Swagger
+Com a API em execucao:
+
+- http://127.0.0.1:8000/docs
+
+OpenAPI JSON:
+
+- http://127.0.0.1:8000/openapi.json
+
+## 14. Como executar scripts/smoke-test.sh
+Com a API em execucao e a partir da raiz do projeto:
+
+```bash
+bash scripts/smoke-test.sh
+```
+
+Opcional (para executar diretamente):
+
+```bash
+chmod +x scripts/smoke-test.sh
+./scripts/smoke-test.sh
+```
+
+## 15. Resultados esperados dos testes
+- /health retorna HTTP 200
+- /stream/authorize com user_id e movie_id validos retorna HTTP 200 com JSON
+- /stream/authorize sem movie_id retorna HTTP 422
+- /stream/authorize com user_id vazio retorna HTTP 422
+- /docs retorna HTTP 200
+- /openapi.json contem /health e /stream/authorize
+
+Testes automatizados (pytest):
+
+```bash
+python -m pytest -v
+```
+
+Resultado esperado:
+
+- colecao dos testes da API
+- execucao sem falhas (exemplo: 13 passed)
+
+Resposta temporaria atual de /stream/authorize:
+
 ```json
-{  
-  "track": "Everlong",  
-  "artist": "Foo Fighters",  
-  "bpm": 158,  
-  "energy_level": "High",  
-  "visual_preset": "strobes_and_lasers",  
-  "sync_delay_ms": 12  
+{
+  "user_id": "usr_99823",
+  "movie_id": "mov_dune_part2",
+  "authorized": true,
+  "resolution": "4K",
+  "drm_token": "mock-token-usr_99823-mov_dune_part2",
+  "server_region": "sa-east-1"
 }
 ```
 
-##
+## 16. Integracao do provider de validacao externa
 
-### 🍿 Cenário 2 — Blockbuster Premiere Rush (Filmes & Streaming)  
-**📖 A História:**
-Uma grande plataforma de streaming está prestes a lançar a continuação de um épico de ficção científica simultaneamente para o mundo todo. Exatamente às 20h00, milhões de usuários famintos por entretenimento apertarão o botão de play no exato mesmo segundo.   O serviço responsável por verificar as credenciais do usuário, analisar a qualidade da banda de internet do cliente e autorizar a resolução da transmissão (4K, 1080p, 720p) precisa aguentar o "Premiere Rush", ou seja, o pico absurdo de acessos. Se o serviço principal de validação ficar sobrecarregado, ele precisa degradar graciosamente para não derrubar a plataforma inteira, entregando resoluções menores em vez de telas de erro.   
+A API principal agora consulta o mock provider antes de decidir a resposta final de `/stream/authorize`. O cliente HTTP acessa a dependencia externa em modo configurado para obter e validar fatores simulados como assinatura, banda e carga do servidor.
 
-**🎯 Missão Técnica:**  
-Construir o serviço de autorização de streaming que decide a qualidade que o usuário vai receber baseado em fatores simulados, como a carga do servidor ou conexão do cliente.   
+A regra de negocio continua sendo aplicada pela API principal, que decide `authorized` e `resolution` com base no retorno do provider. O mock provider continua isolado e a aplicacao converte falhas especificas do cliente HTTP em erro 503 para manter a API principal ativa.
 
-`GET /stream/authorize?user_id={user_id}&movie_id={movie_id}`  
+### Variaveis de ambiente
 
-**Resposta Esperada:**
+```bash
+export MOCK_PROVIDER_URL=http://127.0.0.1:8001
+export MOCK_PROVIDER_MODE=success
+export PROVIDER_TIMEOUT_SECONDS=1.0
+```
+
+- `MOCK_PROVIDER_MODE`: define o comportamento simulado da dependencia externa. Os modos suportados nesta demonstracao sao `success`, `slow` e `error`.
+- `MOCK_PROVIDER_MODE` tem valor padrao `success`.
+- `PROVIDER_TIMEOUT_SECONDS`: define o tempo maximo de espera da dependencia externa. O valor padrao recomendado e `1.0` segundo.
+- `MOCK_PROVIDER_URL`: endereco do mock provider; se nao definido, o cliente usa `http://127.0.0.1:8001`.
+
+### Comportamento de falhas externas
+
+A aplicacao captura somente excecoes especificas do `httpx` para converter indisponibilidade temporaria em resposta HTTP 503 e JSON controlado:
+
 ```json
-{  
-  "user_id": "usr_99823",  
-  "movie_id": "mov_dune_part2",  
-  "authorized": true,  
-  "resolution": "4K",  
-  "drm_token": "eyJhbGciOiJIUzI1NiIsInR5c...",  
-  "server_region": "sa-east-1"  
+{
+  "detail": "External validation service unavailable"
 }
-```  
+```
 
----
+Esse comportamento foi mantido simples e deliberado: nao ha retry, fallback nem circuit breaker nesta etapa. O objetivo e preservar a API principal funcionando mesmo quando a dependencia externa falha ou responde com erro de rede ou de status.
 
-## 📊 Sistema de Pontuação e Entregáveis (Total: 100 pts)  
-### 📈 1. Observabilidade e Instrumentação (40 pontos)  
-* Expor métricas padrão RED (Rate, Errors, Duration) no formato Prometheus (15 pts).   
-* Estruturar logs em formato JSON (10 pts).   
-* Injetar o trace_id nos logs para garantir a rastreabilidade ponta a ponta (15 pts).   
+### Como executar os servicos para teste manual
 
-### 🖥️ 2. Dashboards e Visualização (25 pontos)  
-* Fornecer um arquivo JSON exportado do Grafana contendo um dashboard previamente configurado (15 pts).  
-* O dashboard deve conter no mínimo 3 painéis: RPS (Requisições por segundo), Taxa de Erros e Latência, utilizando p95 ou média (10 pts).  
+Terminal 1 - API principal:
 
-### ⚙️ 3. Funcionamento da API e Resiliência (20 pontos)  
-* O endpoint desenvolvido deve retornar as respostas esperadas no formato JSON (10 pts).  
-* A aplicação não deve sofrer "crash" caso a API externa simulada falhe; ela deve tratar o erro e retornar um HTTP 500 ou 503 (10 pts).  
+```bash
+uvicorn app.main:app --reload --port 8000
+```
 
-### 📦 4. Documentação e Infraestrutura (15 pontos)  
-* Escrever um Dockerfile otimizado e um arquivo de orquestração (Compose/Swarm) que execute a API e a stack de observabilidade de forma conjunta (10 pts).  
-* Criar um README com instruções claras explicando como rodar o projeto e como acessar o dashboard criado (5 pts).  
+Terminal 2 - Mock provider:
 
----
+```bash
+uvicorn mock_provider.main:app --reload --port 8001
+```
 
-## 🛠️ Material de Apoio e Configuração  
-Para ajudar na construção do setup, utilize as referências oficiais abaixo:  
-* **Grafana LGTM Stack:** Documentação Oficial  [https://grafana.com/docs/opentelemetry/docker-lgtm/]
-* **Instrumentação Python:** OpenTelemetry Docs  [https://opentelemetry.io/docs/]
-* **Testes de Carga:** Grafana k6 Docs  [https://hub.docker.com/r/grafana/k6]
+Opcionalmente, para testar cenarios de lentidao ou falha de dependencia:
 
-### Configuração do Gerador de Carga (k6)  
-Para garantir que sua aplicação receba tráfego e popule os dashboards, crie o arquivo `load.js` na raiz do seu projeto:  
-```JavaScript
-import http from 'k6/http';
-import { sleep } from 'k6';
+```bash
+export MOCK_PROVIDER_MODE=slow
+export MOCK_PROVIDER_MODE=error
+```
 
-export const options = {
-  vus: 50, // 50 usuários virtuais simultâneos simulados
-  duration: '5m', // Duração total do teste
-};
+### Exemplo de consulta manual
 
-export default function () {
-  // ATENÇÃO: Ajuste a URL abaixo para refletir o cenário que você escolheu
-  http.get('http://api:8080/stream/authorize?user_id=123&movie_id=dune2');
-  sleep(0.1); // Pausa de 100ms entre as requisições de cada usuário
+```bash
+curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
+```
+
+### Comandos de demonstracao manual
+
+Sucesso:
+
+```bash
+export MOCK_PROVIDER_MODE=success
+curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
+```
+
+Atraso:
+
+```bash
+export MOCK_PROVIDER_MODE=slow
+curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
+```
+
+Erro externo:
+
+```bash
+export MOCK_PROVIDER_MODE=error
+curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
+```
+
+Em todos os cenarios de falha externa, a resposta publica e a esperada:
+
+```json
+{
+  "detail": "External validation service unavailable"
 }
-```  
+```
 
-No seu arquivo de orquestração `docker-compose.yml`, adicione o bloco abaixo como referência para acionar o teste junto com a sua API:  
-```YAML  
-  k6-load-test:
-    image: grafana/k6:latest
-    volumes:
-      - ./load.js:/load.js
-    command: run /load.js
-    depends_on:
-      - api # Garante que a API inicie antes de receber o tráfego
-```  
+### Testes automatizados
 
----
+```bash
+python -m pytest -v
+```
 
-## 🚀 Processo de Submissão  
-### Antes de enviar, valide sua entrega com este checklist:  
-* [ ] Repositório público com código-fonte.  
-* [ ] Arquivo de orquestração de containers funcional (subindo API, Prometheus, Grafana, Loki, Tempo e Otel Collector).  
-* [ ] Aplicação instrumentada expondo rota /metrics.  
-* [ ] Arquivo JSON do Dashboard do Grafana na raiz do projeto.  
-* [ ] Documentação (README.md da solução) com instruções claras de execução.
+Resultado esperado nesta etapa:
 
-### Como enviar:
-* Faça um fork deste repositório (não clone diretamente!).  
-* Desenvolva o seu projeto dentro deste fork.  
-* Faça o commit e suba as alterações para o SEU fork.  
-* Pela interface do GitHub, abra um Pull Request para este repositório original.  
+- 36 testes coletados
+- 36 aprovados
 
-### ⚠️ ATENÇÃO:  
-* Mantenha o seu fork público para facilitar a inspeção do código pela equipe e não tente fazer PUSH diretamente para este repositório base.  
+## 17. Containerizacao da API principal
 
----
+Objetivo da imagem: empacotar a API principal em um container reutilizavel, com as mesmas dependencias e versao do Python do projeto, e preparar a base para a orquestracao futura com Docker Compose.
 
-### 🎙️ O Que Esperar da Avaliação?  
-A etapa final do processo seletivo incluirá um bate-papo técnico sobre a sua entrega. Esteja preparado para compartilhar sua tela rodando o projeto, navegar pelos dashboards que você construiu e realizar troubleshooting ao vivo caso simulemos uma falha nos seus containers. Entender como a sua telemetria se comporta sob pressão é tão importante quanto o código da API!
+### Build da imagem
+
+```bash
+docker build -t desafio-observabilidade-b3:local .
+```
+
+### Executar a API principal
+
+```bash
+docker run --rm \
+  --name desafio-observabilidade-api-validation \
+  -p 8000:8000 \
+  desafio-observabilidade-b3:local
+```
+
+### Validar o endpoint /health
+
+```bash
+curl -i http://127.0.0.1:8000/health
+```
+
+O mock provider sera executado pelo Compose no proximo incremento.
+Ainda nao existe um arquivo compose.yaml nesta etapa.
+A stack de observabilidade ainda nao foi adicionada.
+
+## 18. Orquestracao basica com Docker Compose
+
+### Subir os dois servicos
+
+```bash
+docker compose up --build -d
+```
+
+### Verificar os servicos em execucao
+
+```bash
+docker compose ps
+```
+
+### Health check da API principal
+
+```bash
+curl -i http://127.0.0.1:8000/health
+```
+
+### Autorizacao via API principal
+
+```bash
+curl -i \
+  "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
+```
+
+### Visualizar logs
+
+```bash
+docker compose logs api
+docker compose logs mock-provider
+```
+
+### Encerrar o ambiente
+
+```bash
+docker compose down
+```
+
+### Healthchecks e dependencia da API
+
+Os healthchecks validam a resposta real de cada servico dentro do proprio container usando Python e a biblioteca padrao do stdlib, sem depender de ferramentas do sistema. A API aguarda o mock provider ficar saudável antes de continuar a inicializacao, usando `depends_on` com `condition: service_healthy` para evitar que a aplicacao comece antes da dependencia externa responder corretamente.
+
+Em `docker compose ps`, o estado `healthy` indica que o servico respondeu ao healthcheck com sucesso. Esse estado e diferente de apenas o processo estar em execucao, porque um container pode estar rodando mesmo sem responder corretamente ao endpoint de monitoramento.
+
+A API acessa o provider via `http://mock-provider:8001` dentro da rede interna do Compose. Esse nome do servico e usado em vez de `localhost` porque a API precisa resolver o outro container da mesma pilha, nao o proprio host. O healthcheck do mock provider utiliza parametros validos para a rota `/validate`, e a observabilidade ainda sera adicionada em uma fase posterior.
+
+## 19. Roadmap resumido das proximas fases
+1. Tratamento de falhas da dependencia externa (timeout, retry, fallback e 503)
+2. Containerizacao com Docker e orquestracao com Docker Compose
+3. Instrumentacao com OpenTelemetry (traces, logs correlacionados, metricas)
+4. Exposicao de metricas RED em /metrics
+5. Stack LGTM (Prometheus, Loki, Tempo, Grafana)
+6. Dashboard Grafana exportado em JSON
+7. Teste de carga com k6
