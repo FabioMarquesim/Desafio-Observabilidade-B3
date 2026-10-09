@@ -1,166 +1,193 @@
-# 🏆 Desafio Técnico - Observabilidade B3
+# Desafio Observabilidade B3 - Stream Authorization API
 
-Um desafio prático desenvolvido para avaliar os fundamentos de Observabilidade e Engenharia de Confiabilidade aplicados a um serviço de backend simulado. 
+## Visão geral
+Esta aplicação expõe uma API FastAPI de autorização de streaming. O endpoint `/stream/authorize` recebe `user_id` e `movie_id`, consulta um mock provider e decide se o usuário fica autorizado, qual resolução será entregue (`4K`, `1080p` ou `none`) e quais metadados acompanham a resposta.
 
-> *"Um sistema às cegas é um incidente esperando para acontecer. Sua missão é trazer a luz."*
+Quando a dependência externa falha, a API converte apenas essas falhas em HTTP 503 para manter a resposta pública estável. O projeto também emite métricas RED, logs estruturados em JSON e traces distribuídos, tudo executado com Docker Compose.
 
----
-
-## 🎯 Objetivo do Desafio
-Construir um serviço HTTP com um endpoint integrado a uma API pública (ou utilizando dados simulados). O foco principal do desafio é **instrumentar essa aplicação** para gerar telemetria útil (Logs, Métricas e Traces) de forma automatizada em um ambiente local.
-
----
-
-## 🔍 O Que Será Avaliado
-A sua entrega será avaliada com base nos seguintes pesos:
-* **Instrumentação (Métricas/Logs/Traces):** 40%.
-* **Criação de Dashboards:** 25%.
-* **Funcionamento da API e Resiliência:** 20%.
-* **Documentação e Infraestrutura como Código (Docker):** 15%.
-
----
-
-## ⏱️ Prazo de Entrega
-O candidato terá **5 dias corridos** a partir do recebimento deste desafio para enviar a solução.
-
----
-
-## 🏗️ Requisitos de Infraestrutura e Stack
-Para padronizar a avaliação, a sua entrega deve rodar localmente com um único comando de orquestração. 
-
-| Componente | Requisito Esperado |
-| :--- | :--- |
-| **Linguagem/Framework** | Python utilizando Flask ou FastAPI. |
-| **Ambiente de Execução** | Docker Compose ou Docker Swarm. |
-| **Stack de Observabilidade** | OpenTelemetry para instrumentação. Utilizar a imagem oficial `grafana/otel-lgtm` que provisiona uma stack completa com OTEL Collector, Prometheus, Loki, Tempo e Grafana. É necessário utilizar também a imagem do `grafana/k6`, que será responsável por gerar o teste de carga na aplicação. |
-
----
-
-## 🧭 Cenários Disponíveis (Escolha APENAS 1)
-
-### 🎧 Cenário 1 — Mainstage Live Sync (Música & Festivais)
-**📖 A História:**
-Em festivais de grande porte, a experiência audiovisual é tudo. A equipe de engenharia de transmissão precisa de uma API ultra-rápida que atue como ponte entre os palcos principais e a internet. O sistema deve capturar instantaneamente os metadados das faixas que estão sendo tocadas nos CDJs e softwares de mixagem dos artistas, processar a "energia" da música e enviar essas informações para sincronizar os painéis de LED, a pirotecnia e atualizar os aplicativos do público em tempo real.
-
-O desafio é que a rede em festivais oscila muito e a integração com bases de dados musicais pode apresentar latência. Se a API falhar ou ficar lenta, os visuais do palco perdem o sincronismo com as batidas, arruinando a experiência do show.
-
-**🎯 Missão Técnica:**
-Construir um endpoint que receba a faixa atual, consulte dados enriquecidos simulando uma API externa de streaming e devolva as instruções de palco.
-
-`GET /live-sync/track?artist={artist}&title={title}`  
-
-**Resposta Esperada:**
-```json
-{  
-  "track": "Everlong",  
-  "artist": "Foo Fighters",  
-  "bpm": 158,  
-  "energy_level": "High",  
-  "visual_preset": "strobes_and_lasers",  
-  "sync_delay_ms": 12  
-}
+## Arquitetura
+```text
+                         +----------------------+
+                         |   Cliente / k6       |
+                         +----------+-----------+
+                                    |
+                                    | HTTP
+                                    v
+                         +----------+-----------+
+                         | API FastAPI :8000    |
+                         | /stream/authorize    |
+                         | /health              |
+                         | /metrics             |
+                         +----+-------------+---+
+                              |             |
+                    HTTPX     |             | Métricas Prometheus
+                              v             v
+                   +----------+---+   +-----+----------------+
+                   | Mock Provider |   | Prometheus :9090     |
+                   | interno :8001 |   +----------+-----------+
+                   +-------+-------+              |
+                           |                      v
+                           |             +--------+-----------+
+                           |             | Grafana RED :3000  |
+                           |             +--------------------+
+                           |
+                           | Traces OTLP/HTTP
+                           v
+                +----------+-------------------------+
+                | grafana/otel-lgtm :0.36.0          |
+                | Collector OTLP :4317/4318          |
+                | Tempo                               |
+                | Loki                                |
+                | Prometheus interno                 |
+                | Grafana LGTM :3001                  |
+                +-------------------------------------+
 ```
 
-##
+O `Prometheus` separado em `9090` coleta `/metrics` da API e alimenta o dashboard RED principal. O `Prometheus` interno do `grafana/otel-lgtm` não alimenta esse dashboard; a stack `LGTM` é usada principalmente para OTLP e `Tempo`.
 
-### 🍿 Cenário 2 — Blockbuster Premiere Rush (Filmes & Streaming)  
-**📖 A História:**
-Uma grande plataforma de streaming está prestes a lançar a continuação de um épico de ficção científica simultaneamente para o mundo todo. Exatamente às 20h00, milhões de usuários famintos por entretenimento apertarão o botão de play no exato mesmo segundo.   O serviço responsável por verificar as credenciais do usuário, analisar a qualidade da banda de internet do cliente e autorizar a resolução da transmissão (4K, 1080p, 720p) precisa aguentar o "Premiere Rush", ou seja, o pico absurdo de acessos. Se o serviço principal de validação ficar sobrecarregado, ele precisa degradar graciosamente para não derrubar a plataforma inteira, entregando resoluções menores em vez de telas de erro.   
+O Grafana em `3000` mostra o dashboard RED. O Grafana em `3001` pertence ao bundle LGTM e serve para investigar traces.
 
-**🎯 Missão Técnica:**  
-Construir o serviço de autorização de streaming que decide a qualidade que o usuário vai receber baseado em fatores simulados, como a carga do servidor ou conexão do cliente.   
+Após o diagrama: os logs permanecem em `stdout` JSON. O `Loki` existe dentro do bundle, mas não recebe os logs da aplicação nesta implementação.
 
-`GET /stream/authorize?user_id={user_id}&movie_id={movie_id}`  
+## Componentes
+- API FastAPI: implementa o fluxo de autorização e publica `/health`, `/metrics` e `/stream/authorize`.
+- Mock provider: simula a dependência externa com cenários de sucesso, lentidão e erro.
+- `Prometheus` separado: coleta as métricas RED expostas pela API.
+- `Grafana` RED: mostra o dashboard operacional da aplicação.
+- `grafana/otel-lgtm:0.36.0`: bundle com Collector, `Tempo`, `Loki`, `Prometheus` interno e `Grafana` LGTM.
+- `k6`: executa o teste de carga obrigatório contra a API.
 
-**Resposta Esperada:**
-```json
-{  
-  "user_id": "usr_99823",  
-  "movie_id": "mov_dune_part2",  
-  "authorized": true,  
-  "resolution": "4K",  
-  "drm_token": "eyJhbGciOiJIUzI1NiIsInR5c...",  
-  "server_region": "sa-east-1"  
-}
-```  
+## Como executar
+Subir a stack:
+```bash
+docker compose up --build -d
+docker compose ps
+```
 
----
+Encerrar a stack:
+```bash
+docker compose down
+```
 
-## 📊 Sistema de Pontuação e Entregáveis (Total: 100 pts)  
-### 📈 1. Observabilidade e Instrumentação (40 pontos)  
-* Expor métricas padrão RED (Rate, Errors, Duration) no formato Prometheus (15 pts).   
-* Estruturar logs em formato JSON (10 pts).   
-* Injetar o trace_id nos logs para garantir a rastreabilidade ponta a ponta (15 pts).   
+Preparar a execução local:
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
 
-### 🖥️ 2. Dashboards e Visualização (25 pontos)  
-* Fornecer um arquivo JSON exportado do Grafana contendo um dashboard previamente configurado (15 pts).  
-* O dashboard deve conter no mínimo 3 painéis: RPS (Requisições por segundo), Taxa de Erros e Latência, utilizando p95 ou média (10 pts).  
+Terminal 1, mock provider:
 
-### ⚙️ 3. Funcionamento da API e Resiliência (20 pontos)  
-* O endpoint desenvolvido deve retornar as respostas esperadas no formato JSON (10 pts).  
-* A aplicação não deve sofrer "crash" caso a API externa simulada falhe; ela deve tratar o erro e retornar um HTTP 500 ou 503 (10 pts).  
+```bash
+uvicorn mock_provider.main:app --host 127.0.0.1 --port 8001
+```
 
-### 📦 4. Documentação e Infraestrutura (15 pontos)  
-* Escrever um Dockerfile otimizado e um arquivo de orquestração (Compose/Swarm) que execute a API e a stack de observabilidade de forma conjunta (10 pts).  
-* Criar um README com instruções claras explicando como rodar o projeto e como acessar o dashboard criado (5 pts).  
+Terminal 2, API:
 
----
+```bash
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
 
-## 🛠️ Material de Apoio e Configuração  
-Para ajudar na construção do setup, utilize as referências oficiais abaixo:  
-* **Grafana LGTM Stack:** Documentação Oficial  [https://grafana.com/docs/opentelemetry/docker-lgtm/]
-* **Instrumentação Python:** OpenTelemetry Docs  [https://opentelemetry.io/docs/]
-* **Testes de Carga:** Grafana k6 Docs  [https://hub.docker.com/r/grafana/k6]
+## Endpoints
+- GET `/health`
+- GET `/stream/authorize`
+- GET `/metrics`
+- GET `/docs`
+- GET `/openapi.json`
 
-### Configuração do Gerador de Carga (k6)  
-Para garantir que sua aplicação receba tráfego e popule os dashboards, crie o arquivo `load.js` na raiz do seu projeto:  
-```JavaScript
-import http from 'k6/http';
-import { sleep } from 'k6';
+Exemplos:
 
-export const options = {
-  vus: 50, // 50 usuários virtuais simultâneos simulados
-  duration: '5m', // Duração total do teste
-};
+```bash
+curl -i http://127.0.0.1:8000/health
+curl -i "http://127.0.0.1:8000/stream/authorize?user_id=usr_99823&movie_id=mov_dune_part2"
+curl -i http://127.0.0.1:8000/metrics
+```
 
-export default function () {
-  // ATENÇÃO: Ajuste a URL abaixo para refletir o cenário que você escolheu
-  http.get('http://api:8080/stream/authorize?user_id=123&movie_id=dune2');
-  sleep(0.1); // Pausa de 100ms entre as requisições de cada usuário
-}
-```  
+## Observabilidade
+O projeto registra logs estruturados em JSON com sanitização de campos sensíveis, incluindo proteção contra vazamento de `drm_token`. Quando há span válido, os logs carregam `trace_id` e `span_id` reais.
 
-No seu arquivo de orquestração `docker-compose.yml`, adicione o bloco abaixo como referência para acionar o teste junto com a sua API:  
-```YAML  
-  k6-load-test:
-    image: grafana/k6:latest
-    volumes:
-      - ./load.js:/load.js
-    command: run /load.js
-    depends_on:
-      - api # Garante que a API inicie antes de receber o tráfego
-```  
+As métricas RED seguem o padrão da aplicação:
+- `http_requests_total`
+- `http_request_errors_total`
+- `http_request_duration_seconds`
+- Labels: `method`, `endpoint`, `status_code`
+- Rotas sem correspondência usam `unmatched`
 
----
+`Prometheus` em `9090` coleta as métricas da API em `http://api:8000/metrics`.
 
-## 🚀 Processo de Submissão  
-### Antes de enviar, valide sua entrega com este checklist:  
-* [ ] Repositório público com código-fonte.  
-* [ ] Arquivo de orquestração de containers funcional (subindo API, Prometheus, Grafana, Loki, Tempo e Otel Collector).  
-* [ ] Aplicação instrumentada expondo rota /metrics.  
-* [ ] Arquivo JSON do Dashboard do Grafana na raiz do projeto.  
-* [ ] Documentação (README.md da solução) com instruções claras de execução.
+## Dashboard
+O dashboard principal fica em `http://127.0.0.1:3000`.
 
-### Como enviar:
-* Faça um fork deste repositório (não clone diretamente!).  
-* Desenvolva o seu projeto dentro deste fork.  
-* Faça o commit e suba as alterações para o SEU fork.  
-* Pela interface do GitHub, abra um Pull Request para este repositório original.  
+Credenciais padrão:
+- usuário: `admin`
+- senha: `admin`
 
-### ⚠️ ATENÇÃO:  
-* Mantenha o seu fork público para facilitar a inspeção do código pela equipe e não tente fazer PUSH diretamente para este repositório base.  
+O arquivo de provisionamento é `grafana-dashboard-red.json` e o UID do dashboard é `stream-authorization-red`.
 
----
+Painéis do dashboard:
+- Requisições por segundo
+- Erros por segundo
+- Latência p95
+- Requisições por endpoint e status HTTP
 
-### 🎙️ O Que Esperar da Avaliação?  
-A etapa final do processo seletivo incluirá um bate-papo técnico sobre a sua entrega. Esteja preparado para compartilhar sua tela rodando o projeto, navegar pelos dashboards que você construiu e realizar troubleshooting ao vivo caso simulemos uma falha nos seus containers. Entender como a sua telemetria se comporta sob pressão é tão importante quanto o código da API!
+## Tracing distribuído
+O tracing usa OpenTelemetry com exportação OTLP/HTTP para o bundle `grafana/otel-lgtm:0.36.0`.
+
+Esse bundle expõe:
+- `OpenTelemetry Collector`
+- `Tempo`
+- `Loki`
+- `Prometheus` interno
+- `Grafana` LGTM em `http://127.0.0.1:3001`
+
+O tracing foi validado com um trace que contém `stream-authorization-api` e `mock-provider`, e o `trace_id` dos logs foi localizado no `Tempo`.
+
+## Teste de carga
+O teste de carga usa `k6` com o profile `load-test`; ele não sobe na inicialização normal.
+
+Execução rápida:
+
+```bash
+K6_VUS=5 K6_DURATION=30s \
+docker compose --profile load-test run --rm k6-load-test
+```
+
+Execução final do desafio:
+
+```bash
+K6_VUS=50 K6_DURATION=5m \
+docker compose --profile load-test run --rm k6-load-test
+```
+
+Thresholds:
+- `http_req_failed`: `rate<0.01`
+- `http_req_duration`: `p(95)<1000`
+- `checks`: `rate>0.99`
+
+O script usa `BASE_URL`, `K6_VUS` e `K6_DURATION`, com defaults `http://api:8000`, `50` e `5m`.
+
+Resultado final validado do `k6`:
+- `50` VUs
+- `5` minutos
+- `25.708` requisições
+- `85,61 req/s`
+- `0` falhas HTTP
+- `100%` dos checks
+- `p95` de `593,75 ms`
+
+## Testes automatizados
+Executar:
+
+```bash
+python -m pytest -q
+```
+
+Estado validado:
+- `64 passed`
+- `1 warning` conhecido do ecossistema Starlette/httpx
+
+## Limitações
+- Não há persistência de dados.
+- Não há alertas operacionais configurados.
+- Os logs da aplicação permanecem em `stdout` JSON; o `Loki` existe no bundle LGTM, mas não recebe os logs nesta implementação.
+- As credenciais locais de observabilidade permanecem as padrão de desenvolvimento.
