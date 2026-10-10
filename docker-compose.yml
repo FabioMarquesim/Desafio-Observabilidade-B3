@@ -1,0 +1,26 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - OTEL_SERVICE_NAME=stream-api
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://lgtm:4318
+    depends_on:
+      - lgtm
+
+  lgtm:
+    image: grafana/otel-lgtm
+    ports:
+      - "3000:3000"   # Grafana
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "9090:9090"   # Prometheus
+
+  k6-load-test:
+    image: grafana/k6:latest
+    volumes:
+      - ./load.js:/load.js
+    command: run /load.js
+    depends_on:
+      - api      
