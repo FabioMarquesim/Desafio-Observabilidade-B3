@@ -4,14 +4,16 @@ import json
 import logging
 import os
 import random
+import threading
 import time
-from typing import Callable, Optional
+from collections import deque
+from pathlib import Path
+from typing import Callable, Deque, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse
 from opentelemetry import trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     Counter,
@@ -19,28 +21,17 @@ from prometheus_client import (
     generate_latest,
 )
 
+FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
 SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "blockbuster-premiere-rush")
-OTLP_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
-EXTERNAL_API_FAILURE_RATE = float(os.getenv("EXTERNAL_API_FAILURE_RATE", "0.05"))
 
+# Estado do Rush controlado pelos novos endpoints
+RUSH_STATE = {
+    "active": False,
+    "error_mode": False,
+    "start_time": None
+}
 
-# ---------------------------------------------------------------------------
-# Exceptions de resiliência (API externa simulada)
-# ---------------------------------------------------------------------------
-class ExternalServiceError(Exception):
-    """Falha interna na API externa / banco simulado."""
-
-
-class ExternalServiceUnavailable(Exception):
-    """API externa temporariamente indisponível."""
-
-
-# ---------------------------------------------------------------------------
-# Logs JSON estritos com trace_id / span_id (correlação Loki ↔ Tempo)
-# ---------------------------------------------------------------------------
 class StrictJsonFormatter(logging.Formatter):
-    """Formata 100% das linhas de log em JSON estrito."""
-
     def format(self, record: logging.LogRecord) -> str:
         payload = {
             "timestamp": self.formatTime(record, self.datefmt),
@@ -49,185 +40,76 @@ class StrictJsonFormatter(logging.Formatter):
             "message": record.getMessage(),
             "service": SERVICE_NAME,
         }
-
         span = trace.get_current_span()
         ctx = span.get_span_context() if span is not None else None
         if ctx is not None and ctx.is_valid:
             payload["trace_id"] = format(ctx.trace_id, "032x")
             payload["span_id"] = format(ctx.span_id, "016x")
-        else:
-            payload["trace_id"] = getattr(record, "otelTraceID", "") or ""
-            payload["span_id"] = getattr(record, "otelSpanID", "") or ""
-
-        for key in (
-            "user_id",
-            "movie_id",
-            "authorized",
-            "resolution",
-            "server_region",
-            "error_type",
-            "http_status",
-        ):
+        for key in ("user_id", "movie_id", "authorized", "resolution", "server_region", "error_type", "http_status"):
             if hasattr(record, key):
                 payload[key] = getattr(record, key)
-
-        if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
-
         return json.dumps(payload, ensure_ascii=False)
 
-
-class TraceContextFilter(logging.Filter):
-    """Garante injeção automática de trace_id/span_id em todo LogRecord."""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        span = trace.get_current_span()
-        ctx = span.get_span_context() if span is not None else None
-        if ctx is not None and ctx.is_valid:
-            record.otelTraceID = format(ctx.trace_id, "032x")
-            record.otelSpanID = format(ctx.span_id, "016x")
-        else:
-            record.otelTraceID = getattr(record, "otelTraceID", "") or ""
-            record.otelSpanID = getattr(record, "otelSpanID", "") or ""
-        return True
-
-
-def _try_configure_otlp_logging(resource: Resource) -> Optional[logging.Handler]:
-    """Configura LoggingHandler OTel → OTLP (Loki). Retorna None se indisponível."""
-    try:
-        from opentelemetry._logs import set_logger_provider
-        from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
-        from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
-        from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
-    except ImportError:
-        return None
-
-    logger_provider = LoggerProvider(resource=resource)
-    set_logger_provider(logger_provider)
-    logger_provider.add_log_record_processor(
-        BatchLogRecordProcessor(OTLPLogExporter(endpoint=OTLP_ENDPOINT, insecure=True))
-    )
-    handler = LoggingHandler(level=logging.INFO, logger_provider=logger_provider)
-    handler.addFilter(TraceContextFilter())
-    return handler
-
-
 def configure_logging() -> logging.Logger:
-    resource = Resource.create({"service.name": SERVICE_NAME})
-
     stdout_handler = logging.StreamHandler()
     stdout_handler.setFormatter(StrictJsonFormatter())
-    stdout_handler.addFilter(TraceContextFilter())
-
     root = logging.getLogger()
     root.handlers.clear()
     root.addHandler(stdout_handler)
-
-    otel_handler = _try_configure_otlp_logging(resource)
-    if otel_handler is not None:
-        root.addHandler(otel_handler)
-
     root.setLevel(logging.INFO)
-    logging.getLogger("uvicorn.access").handlers.clear()
-    logging.getLogger("uvicorn.error").setLevel(logging.INFO)
-
     return logging.getLogger(SERVICE_NAME)
 
-
-def configure_tracing() -> None:
-    resource = Resource.create({"service.name": SERVICE_NAME})
-    provider = TracerProvider(resource=resource)
-
-    try:
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
-
-        provider.add_span_processor(
-            BatchSpanProcessor(OTLPSpanExporter(endpoint=OTLP_ENDPOINT, insecure=True))
-        )
-    except Exception:
-        # Ambiente local sem coletor OTLP: tracing in-process continua ativo
-        pass
-
-    trace.set_tracer_provider(provider)
-
-
 logger = configure_logging()
-configure_tracing()
-tracer = trace.get_tracer(SERVICE_NAME)
 
+REQUEST_COUNT = Counter("http_requests_total", "Total requests", ["method", "endpoint", "status_code"])
+REQUEST_ERRORS = Counter("http_request_errors_total", "Total errors", ["method", "endpoint", "status_code"])
+REQUEST_DURATION = Histogram("http_request_duration_seconds", "Duration", ["method", "endpoint"])
 
-# ---------------------------------------------------------------------------
-# Métricas RED (Rate, Errors, Duration/p95) — Prometheus
-# ---------------------------------------------------------------------------
-REQUEST_COUNT = Counter(
-    "http_requests_total",
-    "Total de requisições HTTP (Rate / RPS)",
-    ["method", "endpoint", "status_code"],
-)
-REQUEST_ERRORS = Counter(
-    "http_request_errors_total",
-    "Total de requisições HTTP com erro (Errors)",
-    ["method", "endpoint", "status_code"],
-)
-REQUEST_DURATION = Histogram(
-    "http_request_duration_seconds",
-    "Duração das requisições HTTP em segundos (Latency / p95)",
-    ["method", "endpoint"],
-    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
-)
+class LoadMonitor:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._in_flight = 0
+        self._timestamps: Deque[float] = deque()
 
+    def register_request(self) -> Tuple[int, float]:
+        now = time.monotonic()
+        with self._lock:
+            self._in_flight += 1
+            self._timestamps.append(now)
+            self._prune(now)
+            rps = len(self._timestamps) / 1.0
+            return self._in_flight, rps
 
-# ---------------------------------------------------------------------------
-# Simulação de dependência externa (DRM / catálogo)
-# ---------------------------------------------------------------------------
-def call_external_authorization_api(user_id: str, movie_id: str) -> dict:
-    """Simula chamada a API externa/banco com falhas controladas."""
-    with tracer.start_as_current_span("external.authorization_api") as span:
-        span.set_attribute("user_id", user_id)
-        span.set_attribute("movie_id", movie_id)
+    def release_request(self) -> None:
+        now = time.monotonic()
+        with self._lock:
+            self._in_flight = max(0, self._in_flight - 1)
+            self._prune(now)
 
-        time.sleep(random.uniform(0.01, 0.05))
+    def snapshot(self) -> Tuple[int, float]:
+        now = time.monotonic()
+        with self._lock:
+            self._prune(now)
+            rps = len(self._timestamps) / 1.0
+            return self._in_flight, rps
 
-        roll = random.random()
-        if roll < EXTERNAL_API_FAILURE_RATE * 0.4:
-            span.set_attribute("error", True)
-            raise ExternalServiceUnavailable(
-                "Serviço de DRM/catálogo temporariamente indisponível"
-            )
-        if roll < EXTERNAL_API_FAILURE_RATE:
-            span.set_attribute("error", True)
-            raise ExternalServiceError("Falha interna ao consultar autorização externa")
+    def _prune(self, now: float) -> None:
+        cutoff = now - 1.0
+        while self._timestamps and self._timestamps[0] < cutoff:
+            self._timestamps.popleft()
 
-        return {
-            "user_id": user_id,
-            "movie_id": movie_id,
-            "authorized": True,
-            "resolution": "4K",
-            "drm_token": "eyJhbGciOiJIUzI1NiIsInR5c...",
-            "server_region": "sa-east-1",
-        }
+load_monitor = LoadMonitor()
 
-
-# ---------------------------------------------------------------------------
-# App FastAPI
-# ---------------------------------------------------------------------------
-app = FastAPI(
-    title="Blockbuster Premiere Rush",
-    description="Serviço HTTP de autorização de streaming - Desafio Observabilidade B3",
-    version="1.0.0",
-)
-
+app = FastAPI(title="Blockbuster Premiere Rush", version="1.0.0")
 
 @app.middleware("http")
 async def red_metrics_middleware(request: Request, call_next: Callable):
     if request.url.path == "/metrics":
         return await call_next(request)
-
     method = request.method
     endpoint = request.url.path
     start = time.perf_counter()
-
+    
     try:
         response = await call_next(request)
     except Exception:
@@ -239,119 +121,118 @@ async def red_metrics_middleware(request: Request, call_next: Callable):
 
     duration = time.perf_counter() - start
     status_code = str(response.status_code)
-
     REQUEST_COUNT.labels(method=method, endpoint=endpoint, status_code=status_code).inc()
     REQUEST_DURATION.labels(method=method, endpoint=endpoint).observe(duration)
-
     if response.status_code >= 400:
-        REQUEST_ERRORS.labels(
-            method=method, endpoint=endpoint, status_code=status_code
-        ).inc()
-
+        REQUEST_ERRORS.labels(method=method, endpoint=endpoint, status_code=status_code).inc()
     return response
-
 
 @app.get("/")
 def root():
-    """Mensagem de boas-vindas com as rotas disponíveis."""
-    return {
-        "message": "Bem-vindo ao Blockbuster Premiere Rush!",
-        "description": "Serviço de autorização de streaming — Desafio Observabilidade B3",
-        "routes": {
-            "GET /": "Esta mensagem de boas-vindas",
-            "GET /stream/authorize": "Autorização de streaming (?user_id=&movie_id=)",
-            "GET /metrics": "Métricas Prometheus (RED: Rate, Errors, Duration/p95)",
-            "GET /docs": "Documentação interativa (Swagger UI)",
-        },
-    }
+    index = FRONTEND_DIR / "index.html"
+    if index.is_file():
+        return FileResponse(index, media_type="text/html; charset=utf-8")
+    return {"message": "Blockbuster Premiere Rush API"}
 
+# --- Endpoints de Controle ---
+@app.post("/rush/start")
+def start_rush():
+    RUSH_STATE["active"] = True
+    RUSH_STATE["error_mode"] = False  # Modo Limpo (Desafio 100% puro)
+    RUSH_STATE["start_time"] = time.time()
+    logger.info("Rush LIMPO iniciado (Sem erros)")
+    return {"status": "started_clean", "timestamp": RUSH_STATE["start_time"]}
+
+@app.post("/rush/error-start")
+def start_rush_with_errors():
+    RUSH_STATE["active"] = True
+    RUSH_STATE["error_mode"] = True   # Modo Caos (Com injeção de erros)
+    RUSH_STATE["start_time"] = time.time()
+    logger.info("Rush COM ERROS iniciado (Chaos Mode)")
+    return {"status": "started_with_errors", "timestamp": RUSH_STATE["start_time"]}
+
+@app.post("/rush/stop")
+def stop_rush():
+    RUSH_STATE["active"] = False
+    RUSH_STATE["error_mode"] = False
+    RUSH_STATE["start_time"] = None
+    logger.info("Rush finalizado/interrompido")
+    return {"status": "stopped"}
 
 @app.get("/stream/authorize")
 def authorize_stream(
-    user_id: str = Query(..., description="Identificador do usuário"),
-    movie_id: str = Query(..., description="Identificador do filme"),
+    user_id: str = Query(..., description="ID do usuário"),
+    movie_id: str = Query(..., description="ID do filme"),
+    force_resolution: Optional[str] = Query(None, description="Forçar resolução"),
 ):
-    """
-    Autoriza o streaming consultando API externa simulada.
-    Em falha, retorna 500/503 controlados sem derrubar o processo.
-    """
+    concurrent, rps = load_monitor.register_request()
+    
     try:
-        decision = call_external_authorization_api(user_id, movie_id)
-    except ExternalServiceUnavailable as exc:
-        logger.error(
-            "API externa indisponível durante autorização",
-            extra={
-                "user_id": user_id,
-                "movie_id": movie_id,
-                "error_type": "ExternalServiceUnavailable",
-                "http_status": 503,
-            },
-        )
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "service_unavailable",
-                "message": str(exc),
-                "user_id": user_id,
-                "movie_id": movie_id,
-            },
-        ) from exc
-    except ExternalServiceError as exc:
-        logger.error(
-            "Erro interno na API externa durante autorização",
-            extra={
-                "user_id": user_id,
-                "movie_id": movie_id,
-                "error_type": "ExternalServiceError",
-                "http_status": 500,
-            },
-        )
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": "internal_error",
-                "message": str(exc),
-                "user_id": user_id,
-                "movie_id": movie_id,
-            },
-        ) from exc
-    except Exception as exc:
-        logger.exception(
-            "Falha inesperada na autorização de streaming",
-            extra={
-                "user_id": user_id,
-                "movie_id": movie_id,
-                "error_type": type(exc).__name__,
-                "http_status": 500,
-            },
-        )
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": "unexpected_error",
-                "message": "Erro inesperado ao processar autorização",
-                "user_id": user_id,
-                "movie_id": movie_id,
-            },
-        ) from exc
+        if not RUSH_STATE["active"]:
+            resolution = "4K"
+            load_level = "idle"
+            status = "ok"
+        else:
+            current_time = time.time()
+            elapsed = current_time - RUSH_STATE["start_time"]
+            cycle_elapsed = elapsed % 90
+            
+            # Se o modo de erros estiver ativo, injeta falhas frequentes (15% de chance em cada requisição)
+            if RUSH_STATE["error_mode"] and random.random() < 0.15:
+                REQUEST_ERRORS.labels(method="GET", endpoint="/stream/authorize", status_code="500").inc()
+                logger.error(
+                    "Chaos mode simulated server error",
+                    extra={
+                        "user_id": user_id, 
+                        "movie_id": movie_id, 
+                        "error_type": "ChaosEngineeringFault", 
+                        "http_status": 500
+                    }
+                )
+                raise HTTPException(status_code=500, detail="Simulated chaotic stream authorization error")
 
-    logger.info(
-        "Decisão de autorização de streaming",
-        extra={
+            # Timeline de degradação padrão (30s 4K -> 30s 1080p -> 30s 720p)
+            if cycle_elapsed < 30:
+                resolution = "4K"
+                load_level = "low"
+                status = "ok"
+            elif cycle_elapsed < 60:
+                resolution = "1080p"
+                load_level = "medium"
+                status = "degraded"
+            else:
+                resolution = "720p"
+                load_level = "high"
+                status = "degraded"
+
+        if force_resolution and force_resolution.upper() in ["4K", "1080P", "720P"]:
+            resolution = force_resolution.upper()
+            load_level = "manual_override"
+
+        current_concurrent, current_rps = load_monitor.snapshot()
+
+        decision = {
             "user_id": user_id,
             "movie_id": movie_id,
-            "authorized": decision["authorized"],
-            "resolution": decision["resolution"],
-            "server_region": decision["server_region"],
-        },
-    )
-    return decision
+            "authorized": True,
+            "resolution": resolution,
+            "drm_token": "eyJhbGciOiJIUzI1NiIsInR5c...",
+            "server_region": "sa-east-1",
+            "status": status,
+            "load_level": load_level,
+            "concurrent_requests": current_concurrent,
+            "requests_per_second": round(current_rps, 2),
+            "rush_active": RUSH_STATE["active"],
+            "error_mode": RUSH_STATE["error_mode"]
+        }
 
+        return decision
+
+    finally:
+        load_monitor.release_request()
 
 @app.get("/metrics")
 def metrics():
-    """Expõe métricas Prometheus (Rate, Errors, Duration) para dashboards Grafana."""
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
 
 FastAPIInstrumentor.instrument_app(app, excluded_urls="metrics")

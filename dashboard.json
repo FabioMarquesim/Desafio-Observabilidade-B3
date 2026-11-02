@@ -73,7 +73,10 @@
       "id": 1,
       "options": {
         "legend": {
-          "calcs": ["mean", "max"],
+          "calcs": [
+            "mean",
+            "max"
+          ],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
@@ -161,14 +164,17 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 24,
+        "w": 18,
         "x": 0,
         "y": 8
       },
       "id": 2,
       "options": {
         "legend": {
-          "calcs": ["mean", "max"],
+          "calcs": [
+            "mean",
+            "max"
+          ],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
@@ -193,6 +199,71 @@
       ],
       "title": "Taxa de Erros",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 8
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum(http_request_errors_total{endpoint=\"/stream/authorize\", status_code=\"500\"})",
+          "legendFormat": "Erros Totais",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Total de Erros (HTTP 500)",
+      "type": "stat"
     },
     {
       "datasource": {
@@ -267,7 +338,10 @@
       "id": 3,
       "options": {
         "legend": {
-          "calcs": ["mean", "max"],
+          "calcs": [
+            "mean",
+            "max"
+          ],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
@@ -296,14 +370,18 @@
   ],
   "refresh": "5s",
   "schemaVersion": 39,
-  "tags": ["red", "blockbuster", "observabilidade", "b3"],
+  "tags": [
+    "red",
+    "blockbuster",
+    "observabilidade",
+    "b3"
+  ],
   "templating": {
     "list": [
       {
         "current": {
           "selected": false,
-          "text": "Prometheus",
-          "value": "prometheus"
+          "text": "Prometheus"
         },
         "hide": 0,
         "includeAll": false,
@@ -323,6 +401,6 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "Blockbuster Premiere Rush — Métricas RED",
-  "uid": "blockbuster-red",
-  "version": 1
+  "uid": "blockbuster-metrics",
+  "version": 3
 }

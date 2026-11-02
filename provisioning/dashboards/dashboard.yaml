@@ -6,7 +6,7 @@ providers:
     folder: ""
     type: file
     disableDeletion: false
-    updateIntervalSeconds: 30
+    updateIntervalSeconds: 10
     allowUiUpdates: true
     options:
       # Path interno do grafana/otel-lgtm (equivalente funcional a /var/lib/grafana/dashboards)

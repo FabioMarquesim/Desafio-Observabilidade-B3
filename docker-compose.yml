@@ -25,6 +25,11 @@ services:
       - "9090:9090"
     environment:
       - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/otel-lgtm/grafana/conf/provisioning/dashboards/custom/dashboard.json
+      # Permite iframe embutido na UI FastAPI (localhost:8080)
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_AUTH_DISABLE_LOGIN_FORM=false
     volumes:
       # Provisioning oficial do grafana/otel-lgtm (paths internos da imagem)
       - ./provisioning/dashboards/dashboard.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/dashboard.yaml:ro
