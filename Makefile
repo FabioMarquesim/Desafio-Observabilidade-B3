@@ -1,4 +1,4 @@
-.PHONY: help build up down restart logs ps rush-start rush-stop test-k6 clean
+.PHONY: help build up down restart logs ps test-k6 rush-start rush-stop test-unit test-rush test-chaos test-stop clean
 
 # Variáveis
 DC = docker-compose
@@ -29,13 +29,37 @@ logs: ## Exibe os logs em tempo real da API
 ps: ## Lista o status dos contêineres
 	$(DC) ps
 
-test-k6: ## Dispara o teste de carga do k6 via Docker
-	$(DC) run --rm k6 run /scripts/load.js
+test-k6: ## Dispara o teste de carga padrão do k6 via Docker
+	$(DC) run --rm k6-load-test run /load.js
 
 rush-start: ## Dispara a chamada para iniciar o Rush no backend
 	curl -X POST http://localhost:8080/rush/start
 
 rush-stop: ## Dispara a chamada para parar o Rush no backend
+	curl -X POST http://localhost:8080/rush/stop
+
+# ==============================================================================
+# COMANDOS DE TESTE DOS CENÁRIOS (UNITÁRIO, CARGA E CAOS)
+# ==============================================================================
+
+test-unit: ## Executa um teste unitário pontual (requisição curl)
+	@echo "=== Executando Teste Unitário (API) ==="
+	curl -i "http://localhost:8080/stream/authorize?user_id=usr_99823&movie_id=mov_escape_earth"
+
+test-rush: ## Executa o Cenário de Carga Sem Erro (Ativa Rush Limpo + k6)
+	@echo "=== Ativando Modo Rush Limpo na API ==="
+	curl -X POST http://localhost:8080/rush/start
+	@echo "\n=== Disparando Teste de Carga (k6) ==="
+	$(DC) run --rm k6-load-test run /load.js
+
+test-chaos: ## Executa o Cenário de Carga com Erro (Ativa Modo Caos HTTP 500 + k6)
+	@echo "=== Ativando Modo Caos / Injeção de Erros na API ==="
+	curl -X POST http://localhost:8080/rush/error-start
+	@echo "\n=== Disparando Teste de Carga sob Falha (k6) ==="
+	$(DC) run --rm k6-load-test run /load.js
+
+test-stop: ## Para qualquer simulação ativa de Rush/Caos e normaliza a API
+	@echo "=== Parando Modo Rush e Retornando a API ao Normal ==="
 	curl -X POST http://localhost:8080/rush/stop
 
 clean: ## Limpa contêineres e volumes parados

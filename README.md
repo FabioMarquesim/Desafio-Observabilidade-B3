@@ -1,28 +1,8 @@
-# Blockbuster Premiere Rush - Observabilidade B3 (Cenario 2)
+# Blockbuster Premiere Rush - Observabilidade B3 (Cenário 2)
 
 
 
-Sistema de Autorizacao de Streaming de Alta Performance desenvolvido em Python (FastAPI), instrumentado com OpenTelemetry e integrado a stack completa de observabilidade LGTM (Loki, Grafana, Tempo, Prometheus).
-
-
-
----
-
-
-
-## Arquitetura e Componentes da Solucao
-
-
-
-1. Backend FastAPI (/stream/authorize): Gateway de autorizacao com engine de decisao dinamica de qualidade (4K, 1080p, 720p) baseada em nivel de carga e resiliencia sob picos de tráfego.
-
-2. Instrumentacao OpenTelemetry & RED: Coleta nativa de métricas de Rate (RPS), Errors (Taxa de Erros) e Duration (Latencia p95), com expostas via endpoint /metrics no formato Prometheus.
-
-3. Centralizacao de Logs e Tracing: Emissão de logs estruturados em formato JSON com injecao automatica de trace_id e span_id para rastreabilidade ponta a ponta no Loki e no Tempo.
-
-4. Simulador Frontend SRE & Chaos Engineering: Interface web construida para inspecao de metadados, controle de tráfego simulado e injecao de falhas controladas (HTTP 500) para testes de resiliencia.
-
-5. Containerizacao e Orquestracao: Ambiente totalmente containerizado via Docker Compose utilizando a imagem oficial grafana/otel-lgtm e gerador de carga grafana/k6.
+Sistema de Autorização de Streaming de Alta Performance desenvolvido em Python (FastAPI), instrumentado com OpenTelemetry e integrado à stack completa de observabilidade LGTM (Loki, Grafana, Tempo, Prometheus).
 
 
 
@@ -30,17 +10,103 @@ Sistema de Autorizacao de Streaming de Alta Performance desenvolvido em Python (
 
 
 
-## Requisitos de Ambiente
+## 1. Arquitetura e Componentes da Solução
+
+
+
+1. **Backend FastAPI (`/stream/authorize`):** Gateway de autorização com engine de decisão dinâmica de qualidade (4K, 1080p, 720p) baseada em nível de carga e resiliência sob picos de tráfego.
+
+2. **Instrumentação OpenTelemetry & RED:** Coleta nativa de métricas de Rate (RPS), Errors (Taxa de Erros) e Duration (Latência p95), expostas via endpoint `/metrics` no formato Prometheus.
+
+3. **Centralização de Logs e Tracing:** Emissão de logs estruturados em formato JSON com injeção automática de `trace_id` e `span_id` para rastreabilidade ponta a ponta no Loki e no Tempo.
+
+4. **Simulador Frontend SRE & Chaos Engineering:** Interface web construída para inspeção de metadados, controle de tráfego simulado e injeção de falhas controladas (HTTP 500) para testes de resiliência.
+
+5. **Containerização e Orquestração:** Ambiente totalmente containerizado via Docker Compose utilizando a imagem oficial `grafana/otel-lgtm` e gerador de carga `grafana/k6`.
+
+
+
+---
+
+
+
+## 2. Entendendo os Dashboards de Observabilidade (Stack LGTM)
+
+
+
+### 2.1 Métrica RED & Painéis do Grafana
+
+O dashboard pré-provisionado (**"Blockbuster Premiere Rush - Métricas RED"**) permite analisar a saúde da aplicação em tempo real:
+
+
+
+- **RPS - Requisições por Segundo (Rate):** Mede o volume de tráfego que chega ao gateway `/stream/authorize`. Utiliza `irate` para garantir leitura instantânea e sem atrasos no gráfico.
+
+- **Taxa de Erros (Errors):** Exibe a proporção instantânea de respostas HTTP 500 geradas no sistema.
+
+- **Total de Erros Absoluto (Stat Panel):** Contador quantitativo de erros acumulados no período selecionado. Utiliza a função `increase` calibrada com a variável `$__range` e arredondamento estrito de inteiros (0 casas decimais) para bater exatamente com a contagem real do backend.
+
+- **Latência p95 (Duration):** Exibe o tempo de resposta em milissegundos para 95% das requisições autorizadas, mostrando como a degradação graciosa de qualidade (4K → 1080p → 720p) previne lentidões excessivas.
+
+
+
+### 2.2 Ajustes de Visualização no Grafana
+
+- **Seletor de Tempo (Time Range):** No canto superior direito da tela do Grafana (`http://localhost:3000`), clique no ícone de relógio para definir a janela de visualização (ex: `Last 5 minutes` ou `Last 15 minutes`).
+
+- **Auto-Refresh:** Selecione a atualização automática para `5s` para acompanhar picos de tráfego e injeção de falhas ao vivo.
+
+
+
+### 2.3 Logs (Loki) e Traces (Tempo)
+
+- **Loki:** Acesse o menu **Explore** no Grafana e selecione a fonte `Loki` para consultar os logs JSON da aplicação e filtrar eventos por `trace_id`.
+
+- **Tempo:** Na fonte `Tempo`, inspecione os spans de tempo distribuídos de cada requisição capturada pelo OpenTelemetry Collector.
+
+
+
+---
+
+
+
+## 3. Cenários de Teste da Aplicação
+
+
+
+### 3.1 Teste Unitário
+
+Valida o comportamento individual do gateway `/stream/authorize` respondendo com HTTP 200 OK, metadados de carga, token DRM e definição da qualidade inicial.
+
+
+
+### 3.2 Cenário de Carga Sem Erro (Rush Limpo)
+
+Simula o pico de acessos durante o lançamento de uma grande estreia. O gateway recebe alta demanda e ativa a degradação dinâmica de resoluções de mídia para manter o sistema estável sem gerar falhas 500.
+
+
+
+### 3.3 Cenário de Carga Com Erro (Modo Caos / Chaos Engineering)
+
+Simula instabilidade na infraestrutura ou dependências externas através da injeção controlada de falhas HTTP 500. Permite validar os alertas do Grafana, a contagem absoluta de erros e o rastreamento de exceções nos logs do Loki.
+
+
+
+---
+
+
+
+## 4. Requisitos de Ambiente
 
 
 
 - Git
 
-- Docker (versao 20.10+)
+- Docker (versão 20.10+)
 
-- Docker Compose (versao 2.0+)
+- Docker Compose (versão 2.0+)
 
-- Make (opcional, para uso dos comandos facilitados)
+- Make (opcional)
 
 
 
@@ -48,203 +114,119 @@ Sistema de Autorizacao de Streaming de Alta Performance desenvolvido em Python (
 
 
 
-## Passo a Passo de Execucao (Do GitHub a Aplicacao Rodando)
+## 5. Passo a Passo de Execução: Opção A - Docker (Padrão Oficial)
 
 
 
-### Passo 1: Obter o Codigo Fonte
+### 1. Clonar o Repositório
 
-
-
-Abra o terminal e execute os comandos abaixo para clonar o seu fork do repositorio e acessar o diretorio raiz da aplicacao:
-
-
+```bash
 
 git clone https://github.com/seu-usuario/blockbuster-premiere-rush.git
 
 cd blockbuster-premiere-rush
 
-
-
-### Passo 2: Executar a Aplicacao
-
-
-
-A aplicacao pode ser iniciada via Docker Compose padrao ou via Makefile.
+```
 
 
 
-Opcao A: Via Docker Compose (Padrao Oficial do Desafio)
+### 2. Iniciar a Aplicação e a Stack LGTM
 
-
-
-Na raiz do projeto, execute o comando de orquestracao:
-
-
+```bash
 
 docker compose up --build -d
 
-
-
-Este comando vai construir a imagem da API FastAPI, baixar a imagem oficial grafana/otel-lgtm, subir a suite de testes de carga do k6 e integrar os coletores.
+```
 
 
 
-Para checar o status de execucao dos containers:
+### 3. Verificar Status dos Containers
 
-
+```bash
 
 docker compose ps
 
+```
 
 
-Para acompanhar os logs do sistema em tempo real:
 
+### 4. Acompanhar Logs da API em Tempo Real
 
+```bash
 
 docker compose logs -f api
 
-
-
-Opcao B: Via Makefile
-
-
-
-Se optar pelo uso de atalhos automatizados:
+```
 
 
 
-make up          # Constroi as imagens e sobe os servicos em background
-
-make ps          # Inspeciona o estado dos containers
-
-make logs        # Acompanha a saida dos logs da aplicacao
-
-make down        # Encerra e remove os containers do ambiente
+### 5. Executar os Cenários de Teste via Terminal
 
 
 
----
+#### A. Teste Unitário (Requisição Pontual)
 
-
-
-## Como Validar e Testar o Sistema
-
-
-
-### 1. Teste de Endpoint via Terminal (Backend Isolado)
-
-
-
-Para realizar uma requisicao direta de autorizacao de streaming via curl:
-
-
+```bash
 
 curl -i "http://localhost:8080/stream/authorize?user_id=usr_99823&movie_id=mov_escape_earth"
 
-
-
-Resposta de Sucesso Esperada (HTTP 200 OK):
-
-
-
-{
-
-  "user_id": "usr_99823",
-
-  "movie_id": "mov_escape_earth",
-
-  "authorized": true,
-
-  "resolution": "4K",
-
-  "drm_token": "eyJhbGciOiJIUzI1NiIsInR5c...",
-
-  "server_region": "sa-east-1",
-
-  "status": "ok",
-
-  "load_level": "low",
-
-  "concurrent_requests": 1,
-
-  "requests_per_second": 2.0,
-
-  "rush_active": false,
-
-  "error_mode": false
-
-}
+```
 
 
 
-### 2. Inspeção de Metricas Prometheus
+#### B. Cenário de Carga Sem Erros (Rush Limpo + k6)
+
+```bash
+
+# Ativa o modo Rush Limpo
+
+curl -X POST http://localhost:8080/rush/start
 
 
 
-Para verificar a exposicao oficial das metricas no modelo RED:
+# Dispara o teste de carga concorrente do k6
+
+docker compose run --rm k6-load-test run /load.js
+
+```
 
 
 
-curl -s http://localhost:8080/metrics
+#### C. Cenário de Carga Com Erros (Modo Caos + k6)
+
+```bash
+
+# Ativa a injeção de falhas 500
+
+curl -X POST http://localhost:8080/rush/error-start
 
 
 
-### 3. Validação pelo Dashboard do Grafana (Stack LGTM)
+# Dispara o teste de carga sob falhas
+
+docker compose run --rm k6-load-test run /load.js
+
+```
 
 
 
-1. Acesse a interface do Grafana em: http://localhost:3000
+#### D. Parar Simulações de Rush/Caos
 
-2. As credenciais padrao sao: admin / admin (com acesso anonimo configurado para visualizacao).
+```bash
 
-3. Navegue ate o painel pre-provisionado "Blockbuster Premiere Rush - Metricas RED" (carregado via dashboard.json na raiz do projeto).
+curl -X POST http://localhost:8080/rush/stop
 
-4. O painel apresenta em tempo real:
-
-   - RPS (Requisições por Segundo): Calculado via irate para evitar atrasos na amostragem.
-
-   - Taxa de Erros: Monitoramento instantaneo de falhas HTTP 500.
-
-   - Totalizador Absoluto de Erros: Utilizando increase e formatado como numero inteiro (0 casas decimais).
-
-   - Latencia p95: Percentil 95 da duracao das requisicoes.
+```
 
 
 
-### 4. Validacao de Logs (Loki) e Traces (Tempo) no Grafana
+### 6. Encerrar e Limpar o Ambiente
 
+```bash
 
+docker compose down -v
 
-1. No menu lateral do Grafana (http://localhost:3000), clique em "Explore".
-
-2. No seletor de fonte de dados no topo da pagina:
-
-   - Selecione "Loki" para consultar os logs em formato JSON da aplicacao e filtrar pelo trace_id.
-
-   - Selecione "Tempo" para consultar os spans distribuídos das requisicoes HTTP recebidas pelo OpenTelemetry Collector (porta 4317).
-
-
-
-### 5. Validacao via Interface SRE e Simulador de Caos
-
-
-
-Acesse a interface web no seu navegador:
-
-http://localhost:8080
-
-
-
-Recursos disponiveis na interface:
-
-- Botao Play: Dispara autorizacoes unitarias com medicao de latencia no cliente.
-
-- Rush Limpo: Simula o pico de acessos do lancamento sem injecao de erros.
-
-- Rush c/ Erros (Chaos Mode): Ativa o gerador de erros controlados (HTTP 500) para avaliar o comportamento do painel de observabilidade sob instabilidade.
-
-- Telemetria de Tela: Exibe os contadores de requisições enviadas, totalizador de erros 500 e a distribuicao de qualidade por resolucao (4K, 1080p, 720p).
+```
 
 
 
@@ -252,16 +234,118 @@ Recursos disponiveis na interface:
 
 
 
-## Procedimento para Encerramento do Ambiente
+## 6. Passo a Passo de Execução: Opção B - Makefile (Atalhos Automatizados)
 
 
 
-Para interromper os containers e limpar a rede virtual criada pelo Docker:
+### 1. Clonar o Repositório
 
-Via Docker Compose:
+```bash
 
-docker compose down -v
+git clone https://github.com/seu-usuario/blockbuster-premiere-rush.git
 
-Via Makefile:
+cd blockbuster-premiere-rush
+
+```
+
+
+
+### 2. Iniciar o Ambiente
+
+```bash
+
+make up
+
+```
+
+
+
+### 3. Verificar Status dos Containers
+
+```bash
+
+make ps
+
+```
+
+
+
+### 4. Acompanhar Logs da API
+
+```bash
+
+make logs
+
+```
+
+
+
+### 5. Executar os Cenários de Teste via Terminal
+
+
+
+#### A. Teste Unitário
+
+```bash
+
+make test-unit
+
+```
+
+
+
+#### B. Cenário de Carga Sem Erros (Rush Limpo + k6)
+
+```bash
+
+make test-rush
+
+```
+
+
+
+#### C. Cenário de Carga Com Erros (Modo Caos + k6)
+
+```bash
+
+make test-chaos
+
+```
+
+
+
+#### D. Parar Simulações de Rush/Caos
+
+```bash
+
+make test-stop
+
+```
+
+
+
+### 6. Encerrar e Limpar o Ambiente
+
+```bash
 
 make down
+
+```
+
+
+
+---
+
+
+
+## 7. Links de Acesso Rápido com o Ambiente Ativo
+
+
+
+- **Simulador Frontend SRE:** `http://localhost:8080`
+
+- **Dashboard Grafana (Métricas RED):** `http://localhost:3000`
+
+- **Métricas Prometheus Expostas:** `http://localhost:8080/metrics`
+
+- **Documentação OpenAPI / Swagger:** `http://localhost:8080/docs`
