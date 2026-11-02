@@ -192,7 +192,7 @@
               ⏹ Parar
             </button>
           </div>
-          <p id="rushStatus" class="mt-3 text-[11px] text-zinc-500">Rush inativo · rajadas a cada 200ms</p>
+          <p id="rushStatus" class="mt-3 text-[11px] text-zinc-500">Rush inativo · total 0 req (0 erros 500 | 4K: 0, 1080p: 0, 720p: 0)</p>
         </div>
       </div>
 
@@ -228,7 +228,7 @@
             Telemetria e Observabilidade em Tempo Real
             <span class="font-normal normal-case tracking-normal text-zinc-500">(Métricas RED)</span>
           </h3>
-          <p class="mt-1 text-xs text-zinc-500">Grafana embutido · refresh 5s · Rate · Errors · Duration</p>
+          <p class="mt-1 text-xs text-zinc-500">Grafana embutido · refresh 1s · Rate · Errors · Duration</p>
         </div>
         <a
           href="http://localhost:3000"
@@ -244,9 +244,8 @@
         <iframe
           id="grafanaEmbed"
           title="Grafana — Blockbuster Metrics RED"
-          src="http://localhost:3000/d/blockbuster-metrics?orgId=1&kiosk&refresh=5s"
+          src=""
           class="h-96 w-full border-0 bg-zinc-950"
-          loading="lazy"
           referrerpolicy="no-referrer-when-downgrade"
         ></iframe>
       </div>
@@ -275,10 +274,15 @@
       latencyBadge: document.getElementById("latencyBadge"),
       resolutionBadge: document.getElementById("resolutionBadge"),
       gatewayStatus: document.getElementById("gatewayStatus"),
+      grafanaEmbed: document.getElementById("grafanaEmbed"),
     };
 
     let rushTimer = null;
     let rushCount = 0;
+    let rushErrorCount = 0;
+    let rush4kCount = 0;
+    let rush1080pCount = 0;
+    let rush720pCount = 0;
     let rushInFlight = 0;
 
     function buildAuthorizeUrl() {
@@ -361,10 +365,21 @@
         const latencyMs = Math.round(performance.now() - started);
         let body;
 
+        if (res.status === 500) {
+          rushErrorCount += 1;
+        }
+
         try {
           body = await res.json();
         } catch {
           body = { error: "invalid_json", status: res.status };
+        }
+
+        if (res.ok && body.resolution) {
+          const key = normalizeResolution(body.resolution);
+          if (key.includes("4K")) rush4kCount += 1;
+          else if (key.includes("1080")) rush1080pCount += 1;
+          else if (key.includes("720")) rush720pCount += 1;
         }
 
         setGatewayOnline(true);
@@ -412,7 +427,6 @@
       }
     }
 
-    // Botão Play: Chamada pontual para teste estático
     async function onPlayClick() {
       els.btnPlay.disabled = true;
       try {
@@ -422,10 +436,13 @@
       }
     }
 
-    // Função base para disparar o Rush (Limpo ou Com Erros)
     async function startRushMode(endpoint, isErrorMode = false) {
       if (rushTimer) return;
       rushCount = 0;
+      rushErrorCount = 0;
+      rush4kCount = 0;
+      rush1080pCount = 0;
+      rush720pCount = 0;
       rushInFlight = 0;
 
       try {
@@ -441,21 +458,36 @@
       const modeText = isErrorMode ? "modo caos/erros" : "modo limpo";
       const statusColor = isErrorMode ? "text-red-400" : "text-amber-400";
       
-      els.rushStatus.textContent = `Rush ativo (${modeText}) — rajadas concorrentes a cada 200ms`;
-      els.rushStatus.className = `mt-3 text-[11px] ${statusColor}`;
+      let isRunning = true;
+      
+      async function runLoop() {
+        while (isRunning) {
+          rushCount += 1;
+          rushInFlight += 1;
+          els.rushStatus.textContent = `Rush ativo (${modeText}) — ${rushCount} req (${rushErrorCount} erros 500 | 4K: ${rush4kCount}, 1080p: ${rush1080pCount}, 720p: ${rush720pCount}) · ${rushInFlight} em voo`;
+          els.rushStatus.className = `mt-3 text-[11px] ${statusColor}`;
 
-      rushTimer = setInterval(() => {
-        rushCount += 1;
-        rushInFlight += 1;
-        els.rushStatus.textContent = `Rush ativo (${modeText}) — ${rushCount} disparadas · ${rushInFlight} em voo`;
-
-        authorize({ silent: rushCount % 5 !== 0 }).finally(() => {
+          await authorize({ silent: false });
           rushInFlight = Math.max(0, rushInFlight - 1);
-        });
-      }, 200);
+
+          if (isRunning) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+      }
+
+      runLoop();
+
+      rushTimer = {
+        stop: async () => {
+          isRunning = false;
+          try {
+            await fetch(`${API_BASE}/rush/stop`, { method: "POST" });
+          } catch (e) {}
+        }
+      };
     }
 
-    // Handlers específicos dos botões
     function startRushClean() {
       startRushMode("/rush/start", false);
     }
@@ -464,24 +496,32 @@
       startRushMode("/rush/error-start", true);
     }
 
-    // Parar Rush: Interrompe o tráfego e avisa a API
     async function stopRush() {
       if (rushTimer) {
-        clearInterval(rushTimer);
+        if (typeof rushTimer.stop === 'function') {
+          await rushTimer.stop();
+        }
         rushTimer = null;
-      }
-
-      try {
-        await fetch(`${API_BASE}/rush/stop`, { method: "POST" });
-      } catch (e) {
-        console.error("Falha ao comunicar parada do Rush com a API:", e);
       }
 
       els.btnStartRushClean.disabled = false;
       els.btnStartRushErrors.disabled = false;
       els.btnStopRush.disabled = true;
-      els.rushStatus.textContent = `Rush parado · total ${rushCount} req`;
+      els.rushStatus.textContent = `Rush parado · total ${rushCount} req (${rushErrorCount} erros 500 | 4K: ${rush4kCount}, 1080p: ${rush1080pCount}, 720p: ${rush720pCount})`;
       els.rushStatus.className = "mt-3 text-[11px] text-zinc-500";
+    }
+
+    function checkGrafanaAvailability() {
+      const iframe = els.grafanaEmbed;
+      const baseUrl = "http://localhost:3000/d/blockbuster-metrics?orgId=1&kiosk&refresh=1s";
+      
+      const interval = setInterval(async () => {
+        try {
+          await fetch("http://localhost:3000/api/health", { mode: "no-cors" });
+          iframe.src = `${baseUrl}&_ts=${Date.now()}`;
+          clearInterval(interval);
+        } catch (e) {}
+      }, 2000);
     }
 
     els.btnPlay.addEventListener("click", onPlayClick);
@@ -489,10 +529,11 @@
     els.btnStartRushErrors.addEventListener("click", startRushErrors);
     els.btnStopRush.addEventListener("click", stopRush);
 
-    // Verificação inicial silenciosa ao carregar a página
     authorize({ silent: true }).then((r) => {
       if (r.ok && r.body?.resolution) updateResolutionBadge(r.body.resolution);
     });
+
+    checkGrafanaAvailability();
   </script>
 </body>
 </html>

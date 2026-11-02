@@ -138,7 +138,7 @@ def root():
 @app.post("/rush/start")
 def start_rush():
     RUSH_STATE["active"] = True
-    RUSH_STATE["error_mode"] = False  # Modo Limpo (Desafio 100% puro)
+    RUSH_STATE["error_mode"] = False
     RUSH_STATE["start_time"] = time.time()
     logger.info("Rush LIMPO iniciado (Sem erros)")
     return {"status": "started_clean", "timestamp": RUSH_STATE["start_time"]}
@@ -146,7 +146,7 @@ def start_rush():
 @app.post("/rush/error-start")
 def start_rush_with_errors():
     RUSH_STATE["active"] = True
-    RUSH_STATE["error_mode"] = True   # Modo Caos (Com injeção de erros)
+    RUSH_STATE["error_mode"] = True
     RUSH_STATE["start_time"] = time.time()
     logger.info("Rush COM ERROS iniciado (Chaos Mode)")
     return {"status": "started_with_errors", "timestamp": RUSH_STATE["start_time"]}
@@ -177,9 +177,8 @@ def authorize_stream(
             elapsed = current_time - RUSH_STATE["start_time"]
             cycle_elapsed = elapsed % 90
             
-            # Se o modo de erros estiver ativo, injeta falhas frequentes (15% de chance em cada requisição)
+            # Se o modo de erros estiver ativo, injeta falhas frequentes (15% de chance)
             if RUSH_STATE["error_mode"] and random.random() < 0.15:
-                REQUEST_ERRORS.labels(method="GET", endpoint="/stream/authorize", status_code="500").inc()
                 logger.error(
                     "Chaos mode simulated server error",
                     extra={
@@ -191,7 +190,6 @@ def authorize_stream(
                 )
                 raise HTTPException(status_code=500, detail="Simulated chaotic stream authorization error")
 
-            # Timeline de degradação padrão (30s 4K -> 30s 1080p -> 30s 720p)
             if cycle_elapsed < 30:
                 resolution = "4K"
                 load_level = "low"
