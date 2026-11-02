@@ -1,4 +1,4 @@
-# ⏳ Linha do Tempo e Diário de Bordo - Desafio Observabilidade B3
+# Linha do Tempo e Diário de Bordo - Desafio Observabilidade B3
 
 Este documento registra o passo a passo da concepção, arquitetura e desenvolvimento do projeto, servindo como guia para a apresentação técnica.
 
@@ -31,3 +31,15 @@ Este documento registra o passo a passo da concepção, arquitetura e desenvolvi
 - **Script de Carga (`load_test.py`):** Desenvolvido script concorrente simulando o tráfego de pico do cenário *Blockbuster Premiere Rush*.
 - **Validação de Métricas RED:** Disparadas requisições em massa para testar o comportamento da API containerizada e a coleta de dados pelo OpenTelemetry/Prometheus.
 - **Quarto Marco:** Commit da automação de testes de carga (`test: adiciona script de teste de carga para simulacao de pico`).
+
+## 7. Desenvolvimento do Frontend e Simulador de SRE
+- **Interface Web:** Criação do `frontend.html` em Tailwind CSS com design retrô minimalista inspirado na identidade visual da Blockbuster Premiere Rush.
+- **Simulação Avançada (Rush):** Implementação dos modos de tráfego dinâmico (*Rush Limpo* via `/rush/start` e *Rush c/ Erros/Chaos* via `/rush/error-start`).
+- **Contadores em Tempo Real:** Adicionados contadores granulares no painel do SRE para monitorar o total de requisições, erros 500 e a quebra de resoluções de transmissão (4K, 1080p e 720p).
+- **Quinto Marco:** Commit da interface web e simulação avançada (`feat: adiciona interface web e simulação avançada de rush`).
+
+## 8. Refinamento de Observabilidade & Sincronização RED
+- **Correção de Telemetria:** Substituição das funções de taxa para eliminar rampas artificiais e atrasos visuais, adotando `irate` para a taxa de erros instantânea e `increase` com `$__range` acoplado à redução `lastNotNull` para o contador de total de erros.
+- **Padronização do Backend:** Ajuste no middleware de métricas do FastAPI para evitar duplicações de incremento em status HTTP 500.
+- **Ajustes de UI no Grafana:** Configuração de arredondamento estrito de números inteiros (0 decimais) nos painéis Stat para bater perfeitamente com os eventos reais do cliente.
+- **Sexto Marco:** Commit da correção de métricas e sincronização final (`feat(observabilidade): corrige divergência de métricas RED e sincroniza simulador com o Grafana`).
