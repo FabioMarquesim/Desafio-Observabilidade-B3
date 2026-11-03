@@ -64,3 +64,11 @@ test-stop: ## Para qualquer simulação ativa de Rush/Caos e normaliza a API
 
 clean: ## Limpa contêineres e volumes parados
 	$(DC) down -v --remove-orphans
+
+# Ativa o modo caos/erros no backend
+error-start:
+	curl -X POST http://localhost:8080/rush/error-start
+
+# Para o modo caos/erros no backend
+error-stop:
+	curl -X POST http://localhost:8080/rush/stop
