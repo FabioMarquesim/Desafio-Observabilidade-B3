@@ -432,7 +432,41 @@ make down
 
 
 
-## 7. Links de Acesso Rápido com o Ambiente Ativo
+## 7. Passo a Passo de Execução: Opção C - Interface Web (Simulador Frontend SRE)
+
+
+
+Com o ambiente em execução (`make up` ou `docker compose up`), você pode interagir diretamente via navegador:
+
+
+
+1. Acesse o **Simulador Frontend SRE** em `http://localhost:8080`.
+
+2. **Teste Unitário (Autorização Pontual):**
+
+   - Clique no botão de **Play** ($\blacktriangleright$) no topo do banner para disparar uma requisição autorizada ao backend.
+
+   - Observe a resposta detalhada no painel de **Inspeção de Resposta (JSON)** e a medição de **Latência**.
+
+3. **Simulação de Carga e Chaos Engineering:**
+
+   - **🚀 Rush Limpo:** Clique no botão para iniciar a geração dinâmica de acessos sem injeção de erros.
+
+   - **🔥 Rush c/ Erros:** Clique para ativar o modo de caos e simular respostas HTTP 500 no gateway.
+
+   - **⏹️ Parar:** Clique para interromper qualquer simulação ativa e normalizar o sistema.
+
+4. **Visualização de Telemetria Integrada:**
+
+   - Acompanhe o painel de **Telemetria e Observabilidade em Tempo Real (Métricas RED)** embutido na parte inferior da página, ou clique em **"Abrir Grafana Completo"** para abrir a interface dedicada (`http://localhost:3000`).
+
+
+
+---
+
+
+
+## 8. Links de Acesso Rápido com o Ambiente Ativo
 
 
 
