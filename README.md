@@ -1,5 +1,3 @@
-
-
 # Blockbuster Premiere Rush - Observabilidade B3 (Cenário 2)
 
 
@@ -36,7 +34,17 @@ Sistema de Autorização de Streaming de Alta Performance desenvolvido em Python
 
 
 
-### 2.1 Métrica RED & Painéis do Grafana
+### 2.1 Acesso ao Grafana e Credenciais
+
+Para aceder ao explorador e aos dashboards do Grafana (`http://localhost:3000`), utilize as credenciais padrão de autenticação:
+
+- **Usuário:** `admin`
+
+- **Senha:** `admin`
+
+
+
+### 2.2 Métrica RED & Painéis do Grafana
 
 O dashboard pré-provisionado (**"Blockbuster Premiere Rush - Métricas RED"**) permite analisar a saúde da aplicação em tempo real:
 
@@ -52,27 +60,81 @@ O dashboard pré-provisionado (**"Blockbuster Premiere Rush - Métricas RED"**) 
 
 
 
-### 2.2 Ajustes de Visualização no Grafana
+> ⚠️ **Nota de Propagação de Dados:** Os dados e gráficos de volumetria nos dashboards do Grafana podem demorar alguns segundos (ou um breve ciclo de atualização) para refletir as métricas após o início do tráfego ou dos testes de carga.
 
-- **Seletor de Tempo (Time Range):** No canto superior direito da tela do Grafana (`http://localhost:3000`), clique no ícone de relógio para definir a janela de visualização (ex: `Last 5 minutes` ou `Last 15 minutes`).
+
+
+### 2.3 Ajustes de Visualização no Grafana
+
+- **Seletor de Tempo (Time Range):** No canto superior direito da tela do Grafana, clique no ícone de relógio para definir a janela de visualização (ex: `Last 5 minutes` ou `Last 15 minutes`).
 
 - **Auto-Refresh:** Selecione a atualização automática para `5s` para acompanhar picos de tráfego e injeção de falhas ao vivo.
 
 
 
-### 2.3 Logs (Loki) e Traces (Tempo)
+### 2.4 Guia Prático de Consultas no Loki e no Tempo
 
-- **Loki:** Acesse o menu **Explore** no Grafana e selecione a fonte `Loki` para consultar os logs JSON da aplicação e filtrar eventos por `trace_id`.
 
-  - **Query LogQL para puxar todos os logs com erro (HTTP 500):**
 
-    ```logql
+Para realizar investigações avançadas e correlacionar eventos no menu **Explore** do Grafana, utilize os seguintes exemplos de queries:
 
-    {job="blockbuster-api"} |= "500"
 
-    ```
 
-- **Tempo:** Na fonte `Tempo`, inspecione os spans de tempo distribuídos de cada requisição capturada pelo OpenTelemetry Collector.
+#### A. Consultas no Loki (LogQL)
+
+Para inspecionar logs estruturados em JSON, filtrar por nível de erro ou rastrear um identificador único de rastreio (`trace_id`):
+
+
+
+- **Puxar todos os logs estruturados da aplicação:**
+
+  ```logql
+
+  {container="blockbuster-api"} | json | logger="blockbuster-premiere-rush"
+
+  ```
+
+
+
+- **Filtrar apenas logs que registraram erros HTTP 500:**
+
+  ```logql
+
+  {container="blockbuster-api"} | json | level="ERROR"
+
+  ```
+
+
+
+- **Investigar um `trace_id` específico capturado nos logs:**
+
+  ```logql
+
+  {container="blockbuster-api"} |= "0585d4ca7d8adedb457fe18dc4a8b776"
+
+  ```
+
+
+
+#### B. Consultas no Tempo (TraceQL)
+
+Para rastrear o fluxo distribuído e a latência das requisições:
+
+
+
+- **Filtrar todos os rastreios do serviço da aplicação:**
+
+  ```traceql
+
+  { resource.service.name = "blockbuster-premiere-rush" }
+
+  ```
+
+
+
+- **Investigar um Trace ID específico diretamente no Tempo:**
+
+  Basta colar o identificador (ex: `0585d4ca7d8adedb457fe18dc4a8b776`) diretamente na aba de busca por **Trace ID** no painel do Tempo.
 
 
 
@@ -98,7 +160,7 @@ Simula o pico de acessos durante o lançamento de uma grande estreia. O gateway 
 
 ### 3.3 Cenário de Carga Com Erro (Modo Caos / Chaos Engineering)
 
-Simula instabilidade na infraestrutura ou dependências externas através da injeção controlada de falhas HTTP 500. **Atenção:** É obrigatório garantir que o modo de erro esteja ativo no backend (`/rush/error-start`) antes de disparar a carga com o k6 para que os erros sejam injetados corretamente. Permite validar os alertas do Grafana, a contagem absoluta de erros e o rastreamento de exceções nos logs do Loki.
+Simula instabilidade na infraestrutura ou dependências externas através da injeção controlada de falhas HTTP 500. **Atenção:** É obrigatório garantir que o modo de erro esteja ativo no backend (`error-start`) antes de disparar a carga com o k6 para que os erros sejam injetados corretamente. Permite validar os alertas do Grafana, a contagem absoluta de erros e o rastreamento de exceções nos logs do Loki.
 
 
 
@@ -210,7 +272,7 @@ docker compose run --rm k6-load-test run /load.js
 
 ```bash
 
-# Ativa a injeção de falhas 500
+# Ativa manualmente a injeção de falhas 500
 
 curl -X POST http://localhost:8080/rush/error-start
 
@@ -328,7 +390,25 @@ make test-chaos
 
 
 
-#### D. Parar Simulações de Rush/Caos
+#### D. Controlo Manual do Modo Caos (Erros)
+
+```bash
+
+# Ativa manualmente o modo caos/erros
+
+make error-start
+
+
+
+# Desativa manualmente o modo caos/erros
+
+make error-stop
+
+```
+
+
+
+#### E. Parar Simulações de Rush/Caos
 
 ```bash
 
@@ -358,11 +438,8 @@ make down
 
 - **Simulador Frontend SRE:** `http://localhost:8080`
 
-- **Dashboard Grafana (Métricas RED):** `http://localhost:3000`
-
-- **Métricas Prometheus Expostas:** `http://localhost:8080/metrics`
+- **Dashboard Grafana (Métricas RED):** `http://localhost:3000` *(Login: `admin` / `admin`)*
 
 - **Métricas Prometheus Expostas:** `http://localhost:8080/metrics`
 
 - **Prometheus UI:** `http://localhost:9090`
-
