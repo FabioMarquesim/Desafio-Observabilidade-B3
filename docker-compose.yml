@@ -20,6 +20,7 @@ services:
     container_name: otel-lgtm
     ports:
       - "3000:3000"
+      - "3100:3100" # Porta padrão do Loki (exposta para o Promtail empurrar os logs)
       - "4317:4317"
       - "4318:4318"
       - "9090:9090"
@@ -40,6 +41,18 @@ services:
       # Scraping Prometheus → API FastAPI (path oficial otel-lgtm + clássico)
       - ./prometheus.yml:/otel-lgtm/prometheus.yaml:ro
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./promtail-config.yaml:/etc/promtail/promtail.yaml
+    command: -config.file=/etc/promtail/promtail.yaml
+    depends_on:
+      - otel-lgtm
+      - api
+    restart: always
 
   k6-load-test:
     image: grafana/k6:latest

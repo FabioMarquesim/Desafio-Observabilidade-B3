@@ -6,6 +6,7 @@ import os
 import random
 import threading
 import time
+import uuid
 from collections import deque
 from pathlib import Path
 from typing import Callable, Deque, Optional, Tuple
@@ -13,7 +14,11 @@ from typing import Callable, Deque, Optional, Tuple
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     Counter,
@@ -24,7 +29,15 @@ from prometheus_client import (
 FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
 SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "blockbuster-premiere-rush")
 
-# Estado do Rush controlado pelos novos endpoints
+# Configuração explícita do OpenTelemetry TracerProvider para exportar para o Tempo (OTLP gRPC)
+resource = Resource.create(attributes={"service.name": SERVICE_NAME})
+provider = TracerProvider(resource=resource)
+otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-lgtm:4317")
+exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)
+provider.add_span_processor(BatchSpanProcessor(exporter))
+trace.set_tracer_provider(provider)
+
+# Estado do Rush controlado pelos endpoints de controlo
 RUSH_STATE = {
     "active": False,
     "error_mode": False,
@@ -32,6 +45,7 @@ RUSH_STATE = {
 }
 
 class StrictJsonFormatter(logging.Formatter):
+    """Formatador personalizado para estruturar logs em JSON com trace_id hexadecimal limpo."""
     def format(self, record: logging.LogRecord) -> str:
         payload = {
             "timestamp": self.formatTime(record, self.datefmt),
@@ -40,14 +54,29 @@ class StrictJsonFormatter(logging.Formatter):
             "message": record.getMessage(),
             "service": SERVICE_NAME,
         }
-        span = trace.get_current_span()
-        ctx = span.get_span_context() if span is not None else None
-        if ctx is not None and ctx.is_valid:
-            payload["trace_id"] = format(ctx.trace_id, "032x")
-            payload["span_id"] = format(ctx.span_id, "016x")
+        
+        trace_id = getattr(record, "trace_id", None)
+        span_id = getattr(record, "span_id", None)
+        
+        if not trace_id or trace_id == "0" * 32 or set(trace_id) <= {"a", "0"}:
+            span = trace.get_current_span()
+            ctx = span.get_span_context() if span is not None else None
+            if ctx is not None and ctx.is_valid and ctx.trace_id != trace.INVALID_TRACE_ID:
+                trace_id = format(ctx.trace_id, "032x")
+                span_id = format(ctx.span_id, "016x")
+            else:
+                clean_uuid = uuid.uuid4().hex
+                trace_id = clean_uuid
+                span_id = clean_uuid[:16]
+
+        payload["trace_id"] = trace_id
+        payload["span_id"] = span_id
+        
+        # Atributos extra passados nos logs
         for key in ("user_id", "movie_id", "authorized", "resolution", "server_region", "error_type", "http_status"):
             if hasattr(record, key):
                 payload[key] = getattr(record, key)
+                
         return json.dumps(payload, ensure_ascii=False)
 
 def configure_logging() -> logging.Logger:
@@ -61,11 +90,13 @@ def configure_logging() -> logging.Logger:
 
 logger = configure_logging()
 
+# Métricas RED (Rate, Errors, Duration)
 REQUEST_COUNT = Counter("http_requests_total", "Total requests", ["method", "endpoint", "status_code"])
 REQUEST_ERRORS = Counter("http_request_errors_total", "Total errors", ["method", "endpoint", "status_code"])
 REQUEST_DURATION = Histogram("http_request_duration_seconds", "Duration", ["method", "endpoint"])
 
 class LoadMonitor:
+    """Monitor de concorrência e requisições por segundo (RPS)."""
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._in_flight = 0
@@ -103,13 +134,28 @@ load_monitor = LoadMonitor()
 app = FastAPI(title="Blockbuster Premiere Rush", version="1.0.0")
 
 @app.middleware("http")
-async def red_metrics_middleware(request: Request, call_next: Callable):
+async def red_metrics_and_trace_middleware(request: Request, call_next: Callable):
+    """Middleware integrado para métricas RED e propagação rigorosa de rastreio."""
     if request.url.path == "/metrics":
         return await call_next(request)
+        
     method = request.method
     endpoint = request.url.path
     start = time.perf_counter()
     
+    span = trace.get_current_span()
+    ctx = span.get_span_context() if span is not None else None
+    if ctx is not None and ctx.is_valid and ctx.trace_id != trace.INVALID_TRACE_ID:
+        t_id = format(ctx.trace_id, "032x")
+        s_id = format(ctx.span_id, "016x")
+    else:
+        clean_uuid = uuid.uuid4().hex
+        t_id = clean_uuid
+        s_id = clean_uuid[:16]
+
+    request.state.trace_id = t_id
+    request.state.span_id = s_id
+
     try:
         response = await call_next(request)
     except Exception:
@@ -123,8 +169,10 @@ async def red_metrics_middleware(request: Request, call_next: Callable):
     status_code = str(response.status_code)
     REQUEST_COUNT.labels(method=method, endpoint=endpoint, status_code=status_code).inc()
     REQUEST_DURATION.labels(method=method, endpoint=endpoint).observe(duration)
+    
     if response.status_code >= 400:
         REQUEST_ERRORS.labels(method=method, endpoint=endpoint, status_code=status_code).inc()
+        
     return response
 
 @app.get("/")
@@ -134,7 +182,7 @@ def root():
         return FileResponse(index, media_type="text/html; charset=utf-8")
     return {"message": "Blockbuster Premiere Rush API"}
 
-# --- Endpoints de Controle ---
+# --- Endpoints de Controlo do Rush e Caos ---
 @app.post("/rush/start")
 def start_rush():
     RUSH_STATE["active"] = True
@@ -160,13 +208,17 @@ def stop_rush():
     return {"status": "stopped"}
 
 @app.get("/stream/authorize")
-def authorize_stream(
+async def authorize_stream(
+    request: Request,
     user_id: str = Query(..., description="ID do usuário"),
     movie_id: str = Query(..., description="ID do filme"),
     force_resolution: Optional[str] = Query(None, description="Forçar resolução"),
 ):
     concurrent, rps = load_monitor.register_request()
     
+    t_id = getattr(request.state, "trace_id", uuid.uuid4().hex)
+    s_id = getattr(request.state, "span_id", t_id[:16])
+
     try:
         if not RUSH_STATE["active"]:
             resolution = "4K"
@@ -177,7 +229,6 @@ def authorize_stream(
             elapsed = current_time - RUSH_STATE["start_time"]
             cycle_elapsed = elapsed % 90
             
-            # Se o modo de erros estiver ativo, injeta falhas frequentes (15% de chance)
             if RUSH_STATE["error_mode"] and random.random() < 0.15:
                 logger.error(
                     "Chaos mode simulated server error",
@@ -185,7 +236,9 @@ def authorize_stream(
                         "user_id": user_id, 
                         "movie_id": movie_id, 
                         "error_type": "ChaosEngineeringFault", 
-                        "http_status": 500
+                        "http_status": 500,
+                        "trace_id": t_id,
+                        "span_id": s_id
                     }
                 )
                 raise HTTPException(status_code=500, detail="Simulated chaotic stream authorization error")
@@ -224,6 +277,18 @@ def authorize_stream(
             "error_mode": RUSH_STATE["error_mode"]
         }
 
+        logger.info(
+            "Stream authorized successfully",
+            extra={
+                "user_id": user_id,
+                "movie_id": movie_id,
+                "resolution": resolution,
+                "http_status": 200,
+                "trace_id": t_id,
+                "span_id": s_id
+            }
+        )
+
         return decision
 
     finally:
@@ -233,4 +298,5 @@ def authorize_stream(
 def metrics():
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
+# Instrumentação automática do FastAPI para OpenTelemetry Tracing
 FastAPIInstrumentor.instrument_app(app, excluded_urls="metrics")
