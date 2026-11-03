@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BLOCKBUSTER Premiere Rush</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            stream: { red: "#dc2626" },
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    body {
+      background:
+        radial-gradient(ellipse 70% 40% at 50% -10%, rgba(220, 38, 38, 0.14), transparent),
+        #09090b;
+      min-height: 100vh;
+    }
+    #jsonPanel {
+      max-height: 320px;
+      overflow: auto;
+      scrollbar-width: thin;
+      scrollbar-color: #52525b #18181b;
+    }
+    .badge-pulse {
+      animation: badgePulse 1.4s ease-in-out infinite;
+    }
+    @keyframes badgePulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.72; }
+    }
+    .play-btn {
+      transition: transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .play-btn:hover {
+      transform: scale(1.08);
+      background-color: rgba(255, 255, 255, 0.95);
+      box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.12), 0 20px 40px rgba(0, 0, 0, 0.45);
+    }
+    .play-btn:active {
+      transform: scale(0.96);
+    }
+    .play-btn:disabled {
+      opacity: 0.6;
+      cursor: wait;
+      transform: none;
+    }
+  </style>
+</head>
+<body class="text-zinc-100 antialiased">
+  <!-- 1. Header fixo -->
+  <header class="fixed inset-x-0 top-0 z-50 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur">
+    <div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+      <div class="flex items-center gap-3">
+        <span class="inline-flex h-8 w-8 items-center justify-center rounded bg-red-600 text-sm font-black tracking-tighter text-white">B</span>
+        <div>
+          <h1 class="text-sm font-bold uppercase tracking-wide text-white sm:text-base">
+            BLOCKBUSTER <span class="text-red-600">Premiere Rush</span>
+          </h1>
+          <p class="text-[11px] tracking-wider text-zinc-500">Cenário 2 · Streaming Auth Gateway</p>
+        </div>
+      </div>
+      <div
+        id="gatewayStatus"
+        class="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400"
+      >
+        <span class="relative flex h-2 w-2">
+          <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60"></span>
+          <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-400"></span>
+        </span>
+        SRE: Online
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-7xl px-4 pb-10 pt-20 sm:px-6 sm:pt-24">
+    <!-- 2. Seção superior: Pôster / Player -->
+    <section class="relative mb-8 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl shadow-black/50">
+      <div class="relative aspect-video w-full">
+        <img
+          src="https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=1200&auto=format&fit=crop"
+          alt="ESCAPE EARTH — pôster"
+          class="absolute inset-0 h-full w-full object-cover"
+          loading="eager"
+        />
+        <div class="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/50 to-zinc-950/20"></div>
+        <div class="absolute inset-0 bg-gradient-to-r from-zinc-950/80 via-transparent to-zinc-950/30"></div>
+
+        <!-- Badges topo -->
+        <div class="absolute left-4 right-4 top-4 z-10 flex flex-wrap items-start justify-between gap-3 sm:left-6 sm:right-6 sm:top-6">
+          <span class="inline-flex items-center rounded border border-red-600/60 bg-red-600/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white shadow-lg">
+            Estreia Mundial
+          </span>
+          <div
+            id="resolutionBadge"
+            class="inline-flex items-center rounded-md border border-zinc-600/80 bg-zinc-950/80 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-300 backdrop-blur"
+          >
+            Aguardando autorização
+          </div>
+        </div>
+
+        <!-- Play central -->
+        <div class="absolute inset-0 z-10 flex items-center justify-center">
+          <button
+            id="btnPlay"
+            type="button"
+            aria-label="Autorizar e transmitir Escape Earth"
+            class="play-btn flex h-16 w-16 items-center justify-center rounded-full border border-white/40 bg-white/25 text-white backdrop-blur-md sm:h-20 sm:w-20"
+          >
+            <svg class="ml-1 h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M8 5.14v13.72L19 12 8 5.14z" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Título inferior -->
+        <div class="absolute bottom-0 left-0 right-0 z-10 p-5 sm:p-8">
+          <p class="mb-1 text-[10px] font-semibold uppercase tracking-[0.25em] text-red-500 sm:text-xs">
+            Blockbuster Original
+          </p>
+          <h2 class="text-3xl font-black tracking-tight text-white drop-shadow-lg sm:text-5xl lg:text-6xl">
+            ESCAPE EARTH
+          </h2>
+          <p class="mt-2 max-w-xl text-xs text-zinc-300 sm:text-sm">
+            Clique no Play para autorizar o stream via FastAPI ou acione o Rush para simular tráfego dinâmico.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Seção média: Grid 2 colunas -->
+    <section class="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <!-- A. Painel SRE -->
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/70 p-5 shadow-xl sm:p-6">
+        <h3 class="mb-5 text-sm font-semibold uppercase tracking-wider text-zinc-200">
+          Painel de Controle SRE
+        </h3>
+
+        <div class="space-y-4">
+          <label class="block">
+            <span class="mb-1.5 block text-xs text-zinc-500">user_id</span>
+            <input
+              id="userId"
+              type="text"
+              value="usr_99823"
+              class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none transition focus:border-red-600 focus:ring-1 focus:ring-red-600"
+            />
+          </label>
+          <label class="block">
+            <span class="mb-1.5 block text-xs text-zinc-500">movie_id</span>
+            <input
+              id="movieId"
+              type="text"
+              value="mov_escape_earth"
+              class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none transition focus:border-red-600 focus:ring-1 focus:ring-red-600"
+            />
+          </label>
+        </div>
+
+        <div class="mt-6 border-t border-zinc-800 pt-5">
+          <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+            Simulação de Pico (Rush)
+          </p>
+          <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+            <button
+              id="btnStartRushClean"
+              type="button"
+              class="rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-2.5 text-xs font-semibold text-amber-300 transition hover:bg-amber-500/20"
+            >
+              🚀 Rush Limpo
+            </button>
+            <button
+              id="btnStartRushErrors"
+              type="button"
+              class="rounded-lg border border-red-500/40 bg-red-500/10 px-2.5 py-2.5 text-xs font-semibold text-red-300 transition hover:bg-red-500/20"
+            >
+              🔥 Rush c/ Erros
+            </button>
+            <button
+              id="btnStopRush"
+              type="button"
+              disabled
+              class="rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2.5 text-xs font-semibold text-zinc-500 transition enabled:border-zinc-500 enabled:text-zinc-200 enabled:hover:bg-zinc-800 disabled:cursor-not-allowed"
+            >
+              ⏹ Parar
+            </button>
+          </div>
+          <p id="rushStatus" class="mt-3 text-[11px] text-zinc-500">Rush inativo · total 0 req (0 erros 500 | 4K: 0, 1080p: 0, 720p: 0)</p>
+        </div>
+      </div>
+
+      <!-- B. Inspeção + Latência -->
+      <div class="flex flex-col gap-4">
+        <div class="rounded-xl border border-zinc-800 bg-zinc-900/70 p-5 shadow-xl sm:p-6">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <h3 class="text-sm font-semibold uppercase tracking-wider text-zinc-200">Latência</h3>
+              <p class="mt-1 text-[11px] text-zinc-500">Última chamada a /stream/authorize</p>
+            </div>
+            <span id="latencyBadge" class="font-mono text-2xl font-semibold text-zinc-500">— ms</span>
+          </div>
+        </div>
+
+        <div class="flex-1 rounded-xl border border-zinc-800 bg-zinc-900/70 p-5 shadow-xl sm:p-6">
+          <h3 class="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-200">
+            Inspeção de Resposta (JSON)
+          </h3>
+          <pre
+            id="jsonPanel"
+            class="rounded-lg border border-zinc-800 bg-zinc-950 p-3 font-mono text-[11px] leading-relaxed text-emerald-400/90 whitespace-pre-wrap break-all"
+          >Aguardando autorização… Clique no Play ou Inicie o Rush.</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Seção inferior: Grafana -->
+    <section class="rounded-xl border border-zinc-800 bg-zinc-900/70 p-4 shadow-xl sm:p-5">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wider text-zinc-200 sm:text-base">
+            Telemetria e Observabilidade em Tempo Real
+            <span class="font-normal normal-case tracking-normal text-zinc-500">(Métricas RED)</span>
+          </h3>
+          <p class="mt-1 text-xs text-zinc-500">Grafana embutido · refresh 1s · Rate · Errors · Duration</p>
+        </div>
+        <a
+          href="http://localhost:3000"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-xs text-zinc-400 transition hover:text-red-500 hover:underline hover:underline-offset-2"
+        >
+          Abrir Grafana Completo ↗
+        </a>
+      </div>
+
+      <div class="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950">
+        <iframe
+          id="grafanaEmbed"
+          title="Grafana — Blockbuster Metrics RED"
+          src=""
+          class="h-96 w-full border-0 bg-zinc-950"
+          referrerpolicy="no-referrer-when-downgrade"
+        ></iframe>
+      </div>
+    </section>
+  </main>
+
+  <footer class="mx-auto max-w-7xl px-4 pb-8 text-center text-[11px] text-zinc-600 sm:px-6">
+    Blockbuster Premiere Rush · FastAPI · Prometheus · Grafana
+  </footer>
+
+  <script>
+    const API_BASE = window.location.protocol.startsWith("http")
+      ? ""
+      : "http://localhost:8080";
+    const AUTHORIZE_PATH = "/stream/authorize";
+
+    const els = {
+      userId: document.getElementById("userId"),
+      movieId: document.getElementById("movieId"),
+      btnPlay: document.getElementById("btnPlay"),
+      btnStartRushClean: document.getElementById("btnStartRushClean"),
+      btnStartRushErrors: document.getElementById("btnStartRushErrors"),
+      btnStopRush: document.getElementById("btnStopRush"),
+      rushStatus: document.getElementById("rushStatus"),
+      jsonPanel: document.getElementById("jsonPanel"),
+      latencyBadge: document.getElementById("latencyBadge"),
+      resolutionBadge: document.getElementById("resolutionBadge"),
+      gatewayStatus: document.getElementById("gatewayStatus"),
+      grafanaEmbed: document.getElementById("grafanaEmbed"),
+    };
+
+    let rushTimer = null;
+    let rushCount = 0;
+    let rushErrorCount = 0;
+    let rush4kCount = 0;
+    let rush1080pCount = 0;
+    let rush720pCount = 0;
+    let rushInFlight = 0;
+
+    function buildAuthorizeUrl() {
+      const params = new URLSearchParams({
+        user_id: els.userId.value.trim() || "usr_99823",
+        movie_id: els.movieId.value.trim() || "mov_escape_earth",
+      });
+      return `${API_BASE}${AUTHORIZE_PATH}?${params.toString()}`;
+    }
+
+    function normalizeResolution(value) {
+      if (!value) return "";
+      return String(value).toUpperCase().replace(/\s+/g, "");
+    }
+
+    function updateResolutionBadge(resolution) {
+      const badge = els.resolutionBadge;
+      const key = normalizeResolution(resolution);
+
+      badge.className =
+        "inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-semibold uppercase tracking-wide backdrop-blur badge-pulse";
+
+      if (key.includes("4K") || key === "UHD" || key.includes("ULTRAHD")) {
+        badge.classList.add("border-amber-400/60", "bg-amber-500/20", "text-amber-200");
+        badge.textContent = "4K Ultra HD";
+      } else if (key.includes("1080") || key.includes("FULLHD") || key === "FHD") {
+        badge.classList.add("border-sky-400/60", "bg-sky-500/20", "text-sky-200");
+        badge.textContent = "1080p Full HD";
+      } else if (key.includes("720") || key.includes("DEGRAD") || key === "HD") {
+        badge.classList.add("border-orange-400/60", "bg-orange-500/20", "text-orange-200");
+        badge.textContent = "720p";
+      } else {
+        badge.classList.add("border-zinc-600/80", "bg-zinc-950/80", "text-zinc-300");
+        badge.classList.remove("badge-pulse");
+        badge.textContent = resolution ? String(resolution) : "Resolução desconhecida";
+      }
+    }
+
+    function setGatewayOnline(online) {
+      const el = els.gatewayStatus;
+      if (online) {
+        el.className =
+          "inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400";
+        el.innerHTML = `
+          <span class="relative flex h-2 w-2">
+            <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60"></span>
+            <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-400"></span>
+          </span>
+          SRE: Online`;
+      } else {
+        el.className =
+          "inline-flex items-center gap-2 rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400";
+        el.innerHTML = `
+          <span class="relative flex h-2 w-2">
+            <span class="relative inline-flex h-2 w-2 rounded-full bg-red-400"></span>
+          </span>
+          SRE: Offline`;
+      }
+    }
+
+    function paintLatency(ms, ok) {
+      els.latencyBadge.textContent = `${ms} ms`;
+      if (!ok) {
+        els.latencyBadge.className = "font-mono text-2xl font-semibold text-red-400";
+      } else if (ms < 100) {
+        els.latencyBadge.className = "font-mono text-2xl font-semibold text-emerald-400";
+      } else if (ms < 300) {
+        els.latencyBadge.className = "font-mono text-2xl font-semibold text-amber-400";
+      } else {
+        els.latencyBadge.className = "font-mono text-2xl font-semibold text-orange-400";
+      }
+    }
+
+    async function authorize({ silent = false } = {}) {
+      const url = buildAuthorizeUrl();
+      const started = performance.now();
+
+      try {
+        const res = await fetch(url, { method: "GET" });
+        const latencyMs = Math.round(performance.now() - started);
+        let body;
+
+        if (res.status === 500) {
+          rushErrorCount += 1;
+        }
+
+        try {
+          body = await res.json();
+        } catch {
+          body = { error: "invalid_json", status: res.status };
+        }
+
+        if (res.ok && body.resolution) {
+          const key = normalizeResolution(body.resolution);
+          if (key.includes("4K")) rush4kCount += 1;
+          else if (key.includes("1080")) rush1080pCount += 1;
+          else if (key.includes("720")) rush720pCount += 1;
+        }
+
+        setGatewayOnline(true);
+
+        if (!silent) {
+          paintLatency(latencyMs, res.ok);
+          els.jsonPanel.textContent = JSON.stringify(
+            { ...body, _client: { latency_ms: latencyMs, http_status: res.status } },
+            null,
+            2
+          );
+        }
+
+        if (res.ok && body.resolution) {
+          updateResolutionBadge(body.resolution);
+        } else if (!silent) {
+          els.resolutionBadge.className =
+            "inline-flex items-center rounded-md border border-red-500/50 bg-red-500/15 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-red-300 backdrop-blur";
+          els.resolutionBadge.textContent = `Erro ${res.status}`;
+        }
+
+        return { ok: res.ok, body, latencyMs };
+      } catch (err) {
+        const latencyMs = Math.round(performance.now() - started);
+        setGatewayOnline(false);
+
+        if (!silent) {
+          paintLatency(latencyMs, false);
+          els.jsonPanel.textContent = JSON.stringify(
+            {
+              error: "network_error",
+              message: err.message || String(err),
+              hint: "Verifique se a API está em http://localhost:8080",
+              _client: { latency_ms: latencyMs },
+            },
+            null,
+            2
+          );
+          els.resolutionBadge.className =
+            "inline-flex items-center rounded-md border border-red-500/50 bg-red-500/15 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-red-300 backdrop-blur";
+          els.resolutionBadge.textContent = "Gateway indisponível";
+        }
+
+        return { ok: false, error: err, latencyMs };
+      }
+    }
+
+    async function onPlayClick() {
+      els.btnPlay.disabled = true;
+      try {
+        await authorize({ silent: false });
+      } finally {
+        els.btnPlay.disabled = false;
+      }
+    }
+
+    async function startRushMode(endpoint, isErrorMode = false) {
+      if (rushTimer) return;
+      rushCount = 0;
+      rushErrorCount = 0;
+      rush4kCount = 0;
+      rush1080pCount = 0;
+      rush720pCount = 0;
+      rushInFlight = 0;
+
+      try {
+        await fetch(`${API_BASE}${endpoint}`, { method: "POST" });
+      } catch (e) {
+        console.error("Falha ao comunicar com a API:", e);
+      }
+
+      els.btnStartRushClean.disabled = true;
+      els.btnStartRushErrors.disabled = true;
+      els.btnStopRush.disabled = false;
+
+      const modeText = isErrorMode ? "modo caos/erros" : "modo limpo";
+      const statusColor = isErrorMode ? "text-red-400" : "text-amber-400";
+      
+      let isRunning = true;
+      
+      async function runLoop() {
+        while (isRunning) {
+          rushCount += 1;
+          rushInFlight += 1;
+          els.rushStatus.textContent = `Rush ativo (${modeText}) — ${rushCount} req (${rushErrorCount} erros 500 | 4K: ${rush4kCount}, 1080p: ${rush1080pCount}, 720p: ${rush720pCount}) · ${rushInFlight} em voo`;
+          els.rushStatus.className = `mt-3 text-[11px] ${statusColor}`;
+
+          await authorize({ silent: false });
+          rushInFlight = Math.max(0, rushInFlight - 1);
+
+          if (isRunning) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+      }
+
+      runLoop();
+
+      rushTimer = {
+        stop: async () => {
+          isRunning = false;
+          try {
+            await fetch(`${API_BASE}/rush/stop`, { method: "POST" });
+          } catch (e) {}
+        }
+      };
+    }
+
+    function startRushClean() {
+      startRushMode("/rush/start", false);
+    }
+
+    function startRushErrors() {
+      startRushMode("/rush/error-start", true);
+    }
+
+    async function stopRush() {
+      if (rushTimer) {
+        if (typeof rushTimer.stop === 'function') {
+          await rushTimer.stop();
+        }
+        rushTimer = null;
+      }
+
+      els.btnStartRushClean.disabled = false;
+      els.btnStartRushErrors.disabled = false;
+      els.btnStopRush.disabled = true;
+      els.rushStatus.textContent = `Rush parado · total ${rushCount} req (${rushErrorCount} erros 500 | 4K: ${rush4kCount}, 1080p: ${rush1080pCount}, 720p: ${rush720pCount})`;
+      els.rushStatus.className = "mt-3 text-[11px] text-zinc-500";
+    }
+
+    function checkGrafanaAvailability() {
+      const iframe = els.grafanaEmbed;
+      const baseUrl = "http://localhost:3000/d/blockbuster-metrics?orgId=1&kiosk&refresh=1s";
+      
+      const interval = setInterval(async () => {
+        try {
+          await fetch("http://localhost:3000/api/health", { mode: "no-cors" });
+          iframe.src = `${baseUrl}&_ts=${Date.now()}`;
+          clearInterval(interval);
+        } catch (e) {}
+      }, 2000);
+    }
+
+    els.btnPlay.addEventListener("click", onPlayClick);
+    els.btnStartRushClean.addEventListener("click", startRushClean);
+    els.btnStartRushErrors.addEventListener("click", startRushErrors);
+    els.btnStopRush.addEventListener("click", stopRush);
+
+    authorize({ silent: true }).then((r) => {
+      if (r.ok && r.body?.resolution) updateResolutionBadge(r.body.resolution);
+    });
+
+    checkGrafanaAvailability();
+  </script>
+</body>
+</html>

@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: blockbuster-api
+    ports:
+      - "8080:8080"
+    environment:
+      - OTEL_SERVICE_NAME=blockbuster-premiere-rush
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-lgtm:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - EXTERNAL_API_FAILURE_RATE=0.05
+    depends_on:
+      - otel-lgtm
+    restart: always
+
+  otel-lgtm:
+    image: grafana/otel-lgtm:latest
+    container_name: otel-lgtm
+    ports:
+      - "3000:3000"
+      - "3100:3100" # Porta padrão do Loki (exposta para o Promtail empurrar os logs)
+      - "4317:4317"
+      - "4318:4318"
+      - "9090:9090"
+    environment:
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/otel-lgtm/grafana/conf/provisioning/dashboards/custom/dashboard.json
+      # Permite iframe embutido na UI FastAPI (localhost:8080)
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_AUTH_DISABLE_LOGIN_FORM=false
+    volumes:
+      # Provisioning oficial do grafana/otel-lgtm (paths internos da imagem)
+      - ./provisioning/dashboards/dashboard.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/dashboard.yaml:ro
+      - ./dashboard.json:/otel-lgtm/grafana/conf/provisioning/dashboards/custom/dashboard.json:ro
+      # Compatibilidade com paths clássicos Grafana (pedido do desafio)
+      - ./provisioning/dashboards/dashboard.yaml:/etc/grafana/provisioning/dashboards/dashboard.yaml:ro
+      - ./dashboard.json:/var/lib/grafana/dashboards/dashboard.json:ro
+      # Scraping Prometheus → API FastAPI (path oficial otel-lgtm + clássico)
+      - ./prometheus.yml:/otel-lgtm/prometheus.yaml:ro
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./promtail-config.yaml:/etc/promtail/promtail.yaml
+    command: -config.file=/etc/promtail/promtail.yaml
+    depends_on:
+      - otel-lgtm
+      - api
+    restart: always
+
+  k6-load-test:
+    image: grafana/k6:latest
+    container_name: k6-load-test
+    volumes:
+      - ./load.js:/load.js
+    command: run /load.js
+    depends_on:
+      - api
