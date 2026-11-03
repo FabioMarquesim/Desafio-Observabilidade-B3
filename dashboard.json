@@ -359,7 +359,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum(irate(http_request_duration_seconds_bucket[5s])) by (le, endpoint))",
+          "expr": "histogram_quantile(0.95, sum(irate(http_request_duration_seconds_bucket[5s])) by (le, endpoint, method))",
           "legendFormat": "{{endpoint}} p95",
           "range": true,
           "refId": "A"
